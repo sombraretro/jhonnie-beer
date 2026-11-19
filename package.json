@@ -82,7 +82,7 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Jhonnie Beer"
     },
-    "artifactName": "Uni-PDV-Licenciado-Setup-${version}-${arch}.${ext}"
+    "artifactName": "Jhonnie-Beer-Setup-${version}-${arch}.${ext}"
   },
   "allowScripts": {
     "electron@37.10.3": true,
