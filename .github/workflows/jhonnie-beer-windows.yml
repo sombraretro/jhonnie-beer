@@ -35,7 +35,7 @@ jobs:
       - name: Gerar ícone Windows a partir da logo da adega
         shell: pwsh
         run: |
-          python -c "from PIL import Image; im=Image.open('Logo-Jhonnie-Beer.jpeg').convert('RGBA'); im.thumbnail((256,256)); im.save('icon.ico',format='ICO',sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+          python -c "from PIL import Image,ImageOps; im=Image.open('Logo-Jhonnie-Beer.jpeg').convert('RGBA'); im=ImageOps.fit(im,(256,256),method=Image.Resampling.LANCZOS,centering=(0.5,0.5)); im.save('icon.ico',format='ICO',sizes=[(256,256)])"
 
       - name: Instalar dependências
         run: npm ci
@@ -47,7 +47,7 @@ jobs:
         run: npm run build
 
       - name: Gerar instalador Windows
-        run: npx electron-builder --win nsis --x64
+        run: npx electron-builder --win nsis --x64 --publish never
 
       - name: Publicar instalador como artefato de validação
         uses: actions/upload-artifact@v4
