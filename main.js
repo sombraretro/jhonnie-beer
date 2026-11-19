@@ -1571,4 +1571,6 @@ function startApplication() {
 
 }
 
-app.whenReady().then(()=>startApplication());\n\napp.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
+app.whenReady().then(()=>startApplication());
+
+app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
