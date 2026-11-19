@@ -752,6 +752,19 @@ function CategoryManager({notify,close}){
  },[]);
 
  const mains=cats.filter(c=>!c.parent_id&&c.name!=='Kits / Combos');
+ const adegaPresets=[['Cervejas','beer'],['Destilados','martini'],['Vinhos','wine'],['Refrigerantes','cup-soda'],['Gelo','snowflake']];
+ const createAdegaPresets=async()=>{
+   if(saving)return;
+   setSaving(true);
+   try{
+     const existing=new Set(cats.filter(c=>!c.parent_id).map(c=>String(c.name||'').trim().toLocaleLowerCase('pt-BR')));
+     const missing=adegaPresets.filter(([name])=>!existing.has(name.toLocaleLowerCase('pt-BR')));
+     for(const[name,icon]of missing)await window.api.categories.save({name,parent_id:null,icon});
+     await load();dataChanged();
+     notify(missing.length? `${missing.length} categorias de adega adicionadas.`:'As categorias de adega já estão cadastradas.');
+   }catch(e){notify(e)}finally{setSaving(false)}
+ };
+
 
  const reset=()=>{
    setEdit(null);
@@ -903,6 +916,7 @@ function CategoryManager({notify,close}){
        visualmente os produtos.
      </p>
 
+     <div className="category-create-box adega-category-presets"><div><h3><I.Beer/> Categorias para adega</h3><p className="muted">Adicione rapidamente as categorias mais usadas na Jhonnie Beer. As categorias existentes serão preservadas.</p></div><div className="adega-preset-list">{adegaPresets.map(([name,icon])=>{const Icon=icons[icon]||I.Package;const exists=mains.some(c=>String(c.name).trim().toLocaleLowerCase('pt-BR')===name.toLocaleLowerCase('pt-BR'));return <span className={exists?'adega-preset exists':'adega-preset'} key={name}><Icon/>{name}{exists&&<I.Check/>}</span>})}</div><div className="modalactions"><button type="button" className="primary" disabled={saving||adegaPresets.every(([name])=>mains.some(c=>String(c.name).trim().toLocaleLowerCase('pt-BR')===name.toLocaleLowerCase('pt-BR')))} onClick={createAdegaPresets}>{saving?'Adicionando...':'Adicionar categorias de adega'}</button></div></div>
      <div className="category-manager-grid">
 
        <div className="category-create-box">
