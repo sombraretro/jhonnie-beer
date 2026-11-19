@@ -9,11 +9,11 @@ const { safeStorage } = require('electron');
 const nfce = require('./nfce');
 
 const APP_NAME = 'Jhonnie Beer';
-const STORE_ID = 'br.unisoftwares.unipdv.licenciado';
+const STORE_ID = 'br.unisoftwares.jhonniebeer';
 const DB_FILE = 'pdv-integrado-3.1.db';
 // Base experimental isolada: não modifica os dados da instalação Legacy STABLE.
 // Revisão UX experimental usa base isolada para não alterar o banco da versão STABLE.
-app.setPath('userData', path.join(app.getPath('appData'),'PDV-Loja-Licenciado')); // Dados e licença separados da edição Livre
+app.setPath('userData', path.join(app.getPath('appData'),'Jhonnie Beer')); // Dados e licença separados da edição Livre
 let db;
 let mobileLink=null;
 const now = () => new Date().toISOString();
@@ -1508,7 +1508,7 @@ let appStarted = false;
 function startApplication() {
   if (appStarted) return;
   appStarted = true;
-  try { initDb(); require('./operator-auth').ensure(db); mobileLink=require('./mobile-server').install({ipcMain,getDb:()=>db,app,BrowserWindow,dialog,clipboard:require('electron').clipboard}); registerIpc(); require('./uni-management').install(db,ipcMain); mobileLink.startIfEnabled(); setInterval(()=>scheduledBackup().catch(error=>{try{settingValue('backup_last_error',`${now()} — ${error?.message||String(error)}`)}catch{}}),30000); scheduledBackup().catch(error=>{try{settingValue('backup_last_error',`${now()} — ${error?.message||String(error)}`)}catch{}}); } catch (e) { const detail=e?.message||String(e); try{fs.mkdirSync(app.getPath('userData'),{recursive:true});fs.writeFileSync(path.join(app.getPath('userData'),'startup-error.log'),detail)}catch{}; dialog.showErrorBox('Uni-PDV — erro ao iniciar',detail); app.quit(); return; }
+  try { initDb(); require('./operator-auth').ensure(db); mobileLink=require('./mobile-server').install({ipcMain,getDb:()=>db,app,BrowserWindow,dialog,clipboard:require('electron').clipboard}); registerIpc(); require('./uni-management').install(db,ipcMain); mobileLink.startIfEnabled(); setInterval(()=>scheduledBackup().catch(error=>{try{settingValue('backup_last_error',`${now()} — ${error?.message||String(error)}`)}catch{}}),30000); scheduledBackup().catch(error=>{try{settingValue('backup_last_error',`${now()} — ${error?.message||String(error)}`)}catch{}}); } catch (e) { const detail=e?.message||String(e); try{fs.mkdirSync(app.getPath('userData'),{recursive:true});fs.writeFileSync(path.join(app.getPath('userData'),'startup-error.log'),detail)}catch{}; dialog.showErrorBox('Jhonnie Beer — erro ao iniciar',detail); app.quit(); return; }
   const isDev=!app.isPackaged&&!process.argv.includes('--production');
   const win=new BrowserWindow({width:1440,height:900,minWidth:1100,minHeight:700,icon:path.join(__dirname,'icon.ico'),backgroundColor:'#0b0d10',webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false}});
   const sendTheme=(theme)=>{db.prepare("INSERT INTO settings(key,value) VALUES('theme',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(theme);win.webContents.send('theme:set',theme)};
