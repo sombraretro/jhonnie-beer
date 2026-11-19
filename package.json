@@ -57,7 +57,8 @@
       "package.json",
       "icon.ico",
       "Logo-Jhonnie-Beer.jpeg",
-      "uni-softwares-logo-sobre.png"
+      "uni-softwares-logo-sobre.png",
+      "cash-register.mp3"
     ],
     "asarUnpack": [
       "node_modules/better-sqlite3/**/*"
@@ -81,8 +82,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Jhonnie Beer",
-      "include": "installer.nsh"
+      "shortcutName": "Jhonnie Beer"
     },
     "artifactName": "Uni-PDV-Licenciado-Setup-${version}-${arch}.${ext}"
   },
