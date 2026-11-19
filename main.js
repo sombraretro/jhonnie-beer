@@ -1529,7 +1529,8 @@ function startApplication() {
     ['Rosa','eremenina'],
     ['Carvão & Laranja','cigano'],
     ['Ônix','encruza'],
-    ['Multicolorido','rainbow'],\n    ['Jhonnie Beer','jhonnie']
+    ['Multicolorido','rainbow'],
+    ['Jhonnie Beer','jhonnie']
   ];
   const savedTheme=String(db.prepare("SELECT value FROM settings WHERE key='theme'").get()?.value||'casa');
   const enterFullScreen=()=>{try{win.setKiosk(false);win.setFullScreenable(true);win.setFullScreen(true);}catch{}};
