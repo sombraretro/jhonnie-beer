@@ -1,0 +1,41 @@
+const {contextBridge,ipcRenderer}=require('electron');
+ipcRenderer.on('session:lock',()=>window.dispatchEvent(new Event('session:lock')));
+const call=(channel,...args)=>ipcRenderer.invoke(channel,...args).then(r=>{if(r&&r.ok===false)throw Object.assign(new Error(r.error?.message||'Erro'),r.error||{});if(r&&r.ok===true)return r.data;return r}).catch(e=>{throw new Error(e?.message||'Erro de comunicação com o aplicativo')});
+contextBridge.exposeInMainWorld('api',{
+ dashboard:()=>call('dashboard'),
+ ux:{overview:()=>call('ux:overview'),notifications:()=>call('ux:notifications'),search:q=>call('ux:search',q),diagnostics:()=>call('ux:diagnostics')},
+ activity:{list:n=>call('activity:list',n)},
+ settings:{get:()=>call('settings:get'),set:s=>call('settings:set',s)},
+ scale:{settings:()=>call('scale:settings'),status:()=>call('scale:status'),listPorts:()=>call('scale:list-ports'),test:()=>call('scale:test'),capture:()=>call('scale:capture')},
+ auth:{login:c=>call('auth:login',c),logout:()=>call('auth:logout'),changePassword:c=>call('auth:change-password',c),changeAdminPassword:p=>call('auth:change-admin-password',p)},
+ categories:{list:()=>call('categories:list'),save:c=>call('categories:save',c),delete:id=>call('categories:delete',id),restore:id=>call('categories:restore',id)},
+ notes:{list:q=>call('notes:list',q),save:n=>call('notes:save',n),delete:id=>call('notes:delete',id),restore:id=>call('notes:restore',id)},
+ operators:{list:()=>call('operators:list'),save:o=>call('operators:save',o),delete:id=>call('operators:delete',id)},
+ mobile:{operators:()=>call('mobile:operators'),configureOperator:o=>call('mobile:operator-config',o),devices:()=>call('mobile:devices'),releaseDevice:id=>call('mobile:release-device',id),info:()=>call('mobile:info')},
+ management:{insights:r=>call('management:insights',r),profits:r=>call('management:profits',r),goals:()=>call('management:goals'),saveGoals:g=>call('management:goals-set',g)},
+ logo:{choose:()=>call('image:choose')},
+ products:{list:(q,c)=>call('products:list',q,c),save:p=>call('products:save',p),delete:id=>call('products:delete',id),restore:id=>call('products:restore',id),bulkCategory:x=>call('products:bulk-category',x),barcode:code=>call('products:barcode',code)},
+ stock:{move:m=>call('stock:move',m),analysis:()=>call('stock:analysis')},
+ kits:{list:c=>call('kits:list',c),save:k=>call('kits:save',k),delete:id=>call('kits:delete',id)},
+ suppliers:{list:q=>call('suppliers:list',q),save:s=>call('suppliers:save',s),delete:id=>call('suppliers:delete',id)},
+ finance:{list:f=>call('finance:list',f),save:a=>call('finance:save',a),markPaid:a=>call('finance:mark-paid',a),delete:id=>call('finance:delete',id)},
+ customers:{list:()=>call('customers:list'),save:c=>call('customers:save',c),ledger:id=>call('customers:ledger',id),payment:p=>call('customers:payment',p)},
+ sales:{list:d=>call('sales:list',d),detail:id=>call('sales:detail',id),create:s=>call('sales:create',s),cancel:x=>call('sales:cancel',x),print:id=>call('sales:print',id)},
+ quotes:{
+  list:()=>call('quotes:list'),
+  detail:id=>call('quotes:detail',id),
+  create:q=>call('quotes:create',q),
+  update:(id,q)=>call('quotes:update',id,q),
+  delete:id=>call('quotes:delete',id),
+  setStatus:(id,status)=>call('quotes:set-status',id,status),
+  pdf:id=>call('quotes:pdf',id)
+},
+ fiscal:{list:()=>call('fiscal:list'),pendingSales:()=>call('fiscal:pending-sales'),issue:id=>call('fiscal:issue',id),settings:()=>call('fiscal:settings'),saveSettings:s=>call('fiscal:save-settings',s),chooseCertificate:()=>call('fiscal:choose-certificate'),certificateInfo:p=>call('fiscal:certificate-info',p),testStatus:()=>call('fiscal:test-status'),cancel:(id,reason)=>call('fiscal:cancel',id,reason),danfe:id=>call('fiscal:danfe',id),contingency:(id,reason)=>call('fiscal:contingency',id,reason),transmitPending:()=>call('fiscal:transmit-pending')},
+ cash:{current:()=>call('cash:current'),open:x=>call('cash:open',x),close:x=>call('cash:close',x),withdraw:x=>call('cash:withdraw',x),history:r=>call('cash:history',r)},
+ agenda:{list:o=>call('agenda:list',o),create:a=>call('agenda:create',a),update:a=>call('agenda:update',a),reconcile:()=>call('agenda:reconcile'),dueAlerts:()=>call('agenda:due-alerts'),attendance:x=>call('agenda:attendance',x),completePayment:x=>call('agenda:complete-payment',x),deliverySales:customerId=>call('agenda:delivery-sales',customerId),completeDelivery:x=>call('agenda:complete-delivery',x),completeTask:x=>call('agenda:complete-task',x),report:o=>call('agenda:report',o)},
+ reports:{daily:d=>call('reports:daily',d),monthly:m=>call('reports:monthly',m),export:o=>call('reports:export',o)},
+ backup:{create:()=>call('backup:create'),restore:()=>call('backup:restore'),verifyLatest:()=>call('backup:verify-latest'),schedule:c=>call('backup:schedule',c)},
+ email:{settings:()=>call('email:settings'),saveSettings:s=>call('email:save-settings',s),chooseAttachments:()=>call('email:choose-attachments'),send:x=>call('email:send',x),test:()=>call('email:test')},
+ internet:{search:q=>call('internet:search',q)},
+ theme:{onChange:fn=>ipcRenderer.on('theme:set',(_,theme)=>fn(theme))}
+});

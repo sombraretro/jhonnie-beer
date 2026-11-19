@@ -1,0 +1,89 @@
+{
+  "name": "uni-pdv-licenciado",
+  "version": "3.2.4",
+  "private": true,
+  "description": "Uni-PDV Licenciado 3.2.4: ativação offline com uma única chave UNI32, sem Kit Administrativo.",
+  "author": "Rudnei Souza",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "build": "node scripts/verify-license-build.cjs && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "start": "npm run build && electron . --production",
+    "dist:win": "npm run build && electron-builder --win nsis",
+    "dist:win:dir": "npm run build && electron-builder --win dir",
+    "install:clean": "npm install",
+    "license:sync": "node scripts/verify-license-build.cjs",
+    "test:integration": "node --no-warnings --test tests/uni-3.2.test.cjs",
+    "test:license": "node --test tests/offline-license.test.cjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "lucide-react": "^0.468.0",
+    "node-forge": "^1.3.6",
+    "xml-crypto": "^6.1.2",
+    "@xmldom/xmldom": "^0.8.11",
+    "qrcode": "^1.5.4",
+    "nodemailer": "^7.0.6",
+    "pdfkit": "0.14.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "electron": "^37.10.3",
+    "electron-builder": "^26.15.3",
+    "vite": "^6.4.3",
+    "wait-on": "^8.0.1",
+    "node-gyp": "12.1.0"
+  },
+  "build": {
+    "appId": "br.unisoftwares.unipdv.licenciado",
+    "productName": "Uni-PDV Licenciado",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "assets/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*"
+    ],
+    "npmRebuild": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Uni-PDV-Integrado-Setup-${version}-${arch}.${ext}",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Uni-PDV Licenciado",
+      "include": "build/installer.nsh"
+    },
+    "artifactName": "Uni-PDV-Licenciado-Setup-${version}-${arch}.${ext}"
+  },
+  "allowScripts": {
+    "electron@37.10.3": true,
+    "electron-winstaller@5.4.0": true,
+    "esbuild@0.25.12": true
+  },
+  "productName": "Uni-PDV Licenciado",
+  "artifactName": "Uni-PDV-Licenciado-Setup-${version}-${arch}.${ext}"
+}
