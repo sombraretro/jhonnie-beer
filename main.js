@@ -7,8 +7,8 @@ let Database;
 let PDFDocument=null;
 const { safeStorage } = require('electron');
 const nfce = require('./nfce');
-const offlineLicense=require('./offline-license.cjs');
-const APP_NAME = 'Uni-PDV Licenciado';
+
+const APP_NAME = 'Jhonnie Beer';
 const STORE_ID = 'br.unisoftwares.unipdv.licenciado';
 const DB_FILE = 'pdv-integrado-3.1.db';
 // Base experimental isolada: não modifica os dados da instalação Legacy STABLE.
@@ -1510,7 +1510,7 @@ function startApplication() {
   appStarted = true;
   try { initDb(); require('./operator-auth').ensure(db); mobileLink=require('./mobile-server').install({ipcMain,getDb:()=>db,app,BrowserWindow,dialog,clipboard:require('electron').clipboard}); registerIpc(); require('./uni-management').install(db,ipcMain); mobileLink.startIfEnabled(); setInterval(()=>scheduledBackup().catch(error=>{try{settingValue('backup_last_error',`${now()} — ${error?.message||String(error)}`)}catch{}}),30000); scheduledBackup().catch(error=>{try{settingValue('backup_last_error',`${now()} — ${error?.message||String(error)}`)}catch{}}); } catch (e) { const detail=e?.message||String(e); try{fs.mkdirSync(app.getPath('userData'),{recursive:true});fs.writeFileSync(path.join(app.getPath('userData'),'startup-error.log'),detail)}catch{}; dialog.showErrorBox('Uni-PDV — erro ao iniciar',detail); app.quit(); return; }
   const isDev=!app.isPackaged&&!process.argv.includes('--production');
-  const win=new BrowserWindow({width:1440,height:900,minWidth:1100,minHeight:700,icon:path.join(__dirname,'..','assets','icon.ico'),backgroundColor:'#0b0d10',webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false}});
+  const win=new BrowserWindow({width:1440,height:900,minWidth:1100,minHeight:700,icon:path.join(__dirname,'icon.ico'),backgroundColor:'#0b0d10',webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false}});
   const sendTheme=(theme)=>{db.prepare("INSERT INTO settings(key,value) VALUES('theme',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(theme);win.webContents.send('theme:set',theme)};
   const themeOptions=[
     ['Café','casa'],
@@ -1529,7 +1529,7 @@ function startApplication() {
     ['Rosa','eremenina'],
     ['Carvão & Laranja','cigano'],
     ['Ônix','encruza'],
-    ['Multicolorido','rainbow']
+    ['Multicolorido','rainbow'],\n    ['Jhonnie Beer','jhonnie']
   ];
   const savedTheme=String(db.prepare("SELECT value FROM settings WHERE key='theme'").get()?.value||'casa');
   const enterFullScreen=()=>{try{win.setKiosk(false);win.setFullScreenable(true);win.setFullScreen(true);}catch{}};
@@ -1544,10 +1544,10 @@ function startApplication() {
     {label:'Tema',submenu:themeOptions.map(([label,id])=>({label,type:'radio',checked:id===savedTheme,click:()=>sendTheme(id)}))},
     {label:'Sobre',click:()=>{
       if(win.__uniAbout&&!win.__uniAbout.isDestroyed()){win.__uniAbout.show();win.__uniAbout.focus();return;}
-      const art=path.join(__dirname,'..','assets','uni-softwares-logo-sobre.png');
+      const art=path.join(__dirname,'uni-softwares-logo-sobre.png');
       const image=fs.existsSync(art)?`data:image/png;base64,${fs.readFileSync(art).toString('base64')}`:'';
-      const w=new BrowserWindow({width:520,height:590,resizable:false,modal:true,parent:win,show:false,backgroundColor:'#0b1021',webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true}});win.__uniAbout=w;w.on('closed',()=>{win.__uniAbout=null});
-      const html=`<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"></head><body style="margin:0;min-height:100vh;box-sizing:border-box;padding:24px 32px;background:linear-gradient(#090c1a,#14172a);color:#f4f5ff;font-family:Segoe UI,Arial;text-align:center"><img alt="Logo Uni Softwares" src="${image}" style="height:235px;width:235px;border-radius:50%;object-fit:contain"><h1 style="margin:10px 0 5px;color:#69dbff">Uni Softwares</h1><p style="margin:0;color:#c7cbed">Por Rudnei Souza</p><hr style="border:0;border-top:1px solid #334366;margin:16px 0"><h2 style="margin:6px 0;font-size:19px;color:#ffd29c">Uni-PDV</h2><p style="font-size:14px">Sistema de Ponto de Vendas · Versão 3.1</p><p style="font-size:12px;color:#b1b7d0">Desenvolvido em 2026</p></body></html>`;
+      const w=new BrowserWindow({width:520,height:630,resizable:false,modal:true,parent:win,show:false,autoHideMenuBar:true,backgroundColor:'#0b1021',webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true}});w.removeMenu();win.__uniAbout=w;w.on('closed',()=>{win.__uniAbout=null});
+      const html=`<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"></head><body style="margin:0;min-height:100vh;box-sizing:border-box;padding:24px 32px;background:linear-gradient(#090c1a,#14172a);color:#f4f5ff;font-family:Segoe UI,Arial;text-align:center"><img alt="Logo Uni Softwares" src="${image}" style="height:235px;width:235px;border-radius:50%;object-fit:contain"><h1 style="margin:10px 0 5px;color:#69dbff">Uni Softwares</h1><p style="margin:0;color:#c7cbed">Por Rudnei Souza</p><hr style="border:0;border-top:1px solid #334366;margin:16px 0"><h2 style="margin:6px 0;font-size:19px;color:#ffd29c">Uni-PDV</h2><p style="margin:4px 0;font-size:16px;font-weight:700;color:#e9bd68">Jhonnie Beer</p><p style="font-size:14px">Sistema de Ponto de Vendas · Versão 3.2.5</p><p style="font-size:12px;color:#b1b7d0">Desenvolvido em 2026</p></body></html>`;
       const aboutUrl='data:text/html;charset=utf-8,'+encodeURIComponent(html);
       w.once('ready-to-show',()=>{if(!w.isDestroyed())w.show()});
       w.loadURL(aboutUrl).then(()=>{if(!w.isDestroyed()){w.show();w.focus()}}).catch(error=>{console.error('[Sobre] Não foi possível abrir janela:',error);if(!w.isDestroyed()){w.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent('<h2 style="font-family:Arial">Uni Softwares</h2><p>Uni-PDV · Versão 3.1</p><p>Por Rudnei Souza</p>')).catch(()=>{});w.show();}});
@@ -1570,27 +1570,4 @@ function startApplication() {
 
 }
 
-let activationWindow=null;
-function openOfflineActivation(){
-  if(activationWindow&&!activationWindow.isDestroyed()){activationWindow.focus();return;}
-  activationWindow=new BrowserWindow({width:600,height:420,minWidth:500,minHeight:380,resizable:true,autoHideMenuBar:true,title:'Uni-PDV Licenciado · Chave offline',icon:path.join(__dirname,'..','assets','icon.ico'),webPreferences:{preload:path.join(__dirname,'offline-license-preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
-  activationWindow.loadFile(path.join(__dirname,'offline-license.html'));
-  activationWindow.on('closed',()=>{activationWindow=null;if(!appStarted)app.quit()});
-}
-ipcMain.handle('offline-license:status',event=>{
-  if(!activationWindow||event.sender!==activationWindow.webContents)throw Error('Acesso não autorizado.');
-  return offlineLicense.status(app.getPath('userData'),undefined,safeStorage);
-});
-ipcMain.handle('offline-license:activate',(event,input)=>{
-  if(!activationWindow||event.sender!==activationWindow.webContents)throw Error('Acesso não autorizado.');
-  const result=offlineLicense.activate(app.getPath('userData'),input?.serial,undefined,safeStorage);
-  if(result.valid){const w=activationWindow;activationWindow=null;startApplication();if(w&&!w.isDestroyed())w.close();}
-  return result;
-});
-app.whenReady().then(() => {
-  const state=offlineLicense.autoActivate(app.getPath('userData'),undefined,safeStorage);
-  if(!app.isPackaged||state.valid){startApplication();return;}
-  openOfflineActivation();
-});
-
-app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
+app.whenReady().then(()=>startApplication());\n\napp.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
