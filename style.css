@@ -565,3 +565,10 @@ main{margin-left:238px;width:calc(100% - 238px)}
 .app.theme-jhonnie .primary{background:#c99d58;color:#21180d}
 .app.theme-jhonnie .muted,.app.theme-jhonnie small{color:#c0b5a4}
 @media(max-width:760px){.compact-hero{align-items:flex-start;flex-direction:column}.compact-indicators{justify-content:flex-start}.compact-menu-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.compact-menu-tile{min-height:90px}}
+
+.login-screen.theme-jhonnie{background:radial-gradient(ellipse at 50% 15%,#3a2c1b 0%,#1b1814 45%,#100f0d 100%);color:#f5f0e7}
+.login-screen.theme-jhonnie .login-card{background:#211e19;border:1px solid #655137;color:#f5f0e7;box-shadow:0 24px 80px rgba(0,0,0,.45)}
+.login-screen.theme-jhonnie .login-card h1{color:#e3bd7a}
+.login-screen.theme-jhonnie .login-card p,.login-screen.theme-jhonnie .login-about{color:#c0b5a4}
+.login-screen.theme-jhonnie input{background:#191713;color:#f5f0e7;border-color:#514431}
+.login-screen.theme-jhonnie .primary{background:#c99d58;color:#21180d}
