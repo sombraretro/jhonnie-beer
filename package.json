@@ -13,9 +13,7 @@
     "dist:win": "npm run build && electron-builder --win nsis",
     "dist:win:dir": "npm run build && electron-builder --win dir",
     "install:clean": "npm install",
-    "license:sync": "node scripts/verify-license-build.cjs",
-    "test:integration": "node --no-warnings --test tests/uni-3.2.test.cjs",
-    "test:license": "node --test tests/offline-license.test.cjs"
+    "test:integration": "node --no-warnings --test tests/uni-3.2.test.cjs"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
