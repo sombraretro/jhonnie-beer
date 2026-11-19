@@ -572,3 +572,14 @@ main{margin-left:238px;width:calc(100% - 238px)}
 .login-screen.theme-jhonnie .login-card p,.login-screen.theme-jhonnie .login-about{color:#c0b5a4}
 .login-screen.theme-jhonnie input{background:#191713;color:#f5f0e7;border-color:#514431}
 .login-screen.theme-jhonnie .primary{background:#c99d58;color:#21180d}
+
+/* Categorias rápidas para a operação de adega */
+.adega-category-presets{display:grid;gap:12px;margin:0 0 16px;padding:16px;border:1px solid color-mix(in srgb,#c99d58 42%,var(--border));border-radius:13px;background:color-mix(in srgb,#c99d58 5%,var(--panel))}
+.adega-category-presets h3{display:flex;align-items:center;gap:8px;margin:0 0 5px}
+.adega-category-presets h3 svg{width:19px;height:19px;color:var(--accent)}
+.adega-category-presets p{margin:0}
+.adega-preset-list{display:flex;flex-wrap:wrap;gap:8px}
+.adega-preset{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid var(--border);border-radius:999px;background:var(--panel);color:var(--text);font-size:12px;font-weight:650}
+.adega-preset>svg{width:15px;height:15px;color:var(--accent)}
+.adega-preset.exists{border-color:#477c58;background:color-mix(in srgb,#2e8b57 10%,var(--panel))}
+.adega-preset.exists>svg:last-child{color:#4caf70}
