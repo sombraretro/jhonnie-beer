@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('api',{
  ux:{overview:()=>call('ux:overview'),notifications:()=>call('ux:notifications'),search:q=>call('ux:search',q),diagnostics:()=>call('ux:diagnostics')},
  activity:{list:n=>call('activity:list',n)},
  settings:{get:()=>call('settings:get'),set:s=>call('settings:set',s)},
+ zeDelivery:{credentialsStatus:()=>call('ze-delivery:credentials-status'),saveCredentials:c=>call('ze-delivery:credentials-save',c),deleteCredentials:()=>call('ze-delivery:credentials-delete')},
  scale:{settings:()=>call('scale:settings'),status:()=>call('scale:status'),listPorts:()=>call('scale:list-ports'),test:()=>call('scale:test'),capture:()=>call('scale:capture')},
  auth:{login:c=>call('auth:login',c),logout:()=>call('auth:logout'),changePassword:c=>call('auth:change-password',c),changeAdminPassword:p=>call('auth:change-admin-password',p)},
  categories:{list:()=>call('categories:list'),save:c=>call('categories:save',c),delete:id=>call('categories:delete',id),restore:id=>call('categories:restore',id)},

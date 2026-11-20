@@ -1,21 +1,19 @@
 {
-  "name": "uni-pdv-licenciado",
-  "version": "3.2.4",
+  "name": "jhonnie-beer-pdv",
+  "version": "3.2.8",
   "private": true,
-  "description": "Uni-PDV Licenciado 3.2.4: ativação offline com uma única chave UNI32, sem Kit Administrativo.",
+  "description": "Jhonnie Beer — Sistema de Ponto de Venda",
   "author": "Rudnei Souza",
-  "main": "electron/main.js",
+  "main": "main.js",
   "scripts": {
     "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
-    "build": "node scripts/verify-license-build.cjs && vite build",
+    "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
     "start": "npm run build && electron . --production",
     "dist:win": "npm run build && electron-builder --win nsis",
     "dist:win:dir": "npm run build && electron-builder --win dir",
     "install:clean": "npm install",
-    "license:sync": "node scripts/verify-license-build.cjs",
-    "test:integration": "node --no-warnings --test tests/uni-3.2.test.cjs",
-    "test:license": "node --test tests/offline-license.test.cjs"
+    "test:integration": "node --no-warnings --test uni-3.2.test.cjs"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
@@ -39,18 +37,26 @@
     "node-gyp": "12.1.0"
   },
   "build": {
-    "appId": "br.unisoftwares.unipdv.licenciado",
-    "productName": "Uni-PDV Licenciado",
+    "appId": "br.unisoftwares.jhonniebeer",
+    "productName": "Jhonnie Beer",
     "asar": true,
     "directories": {
       "output": "release"
     },
     "files": [
       "dist/**/*",
-      "electron/**/*",
-      "assets/**/*",
+      "main.js",
+      "preload.js",
+      "nfce.js",
+      "operator-auth.js",
+      "mobile-server.js",
+      "uni-management.js",
+      "node_modules/**/*",
       "package.json",
-      "node_modules/**/*"
+      "icon.ico",
+      "Logo-Jhonnie-Beer.jpeg",
+      "uni-softwares-logo-sobre.png",
+      "cash-register.mp3"
     ],
     "asarUnpack": [
       "node_modules/better-sqlite3/**/*"
@@ -65,8 +71,8 @@
           ]
         }
       ],
-      "artifactName": "Uni-PDV-Integrado-Setup-${version}-${arch}.${ext}",
-      "icon": "assets/icon.ico"
+      "artifactName": "Jhonnie-Beer-Setup-${version}-${arch}.${ext}",
+      "icon": "icon.ico"
     },
     "nsis": {
       "oneClick": false,
@@ -74,16 +80,15 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Uni-PDV Licenciado",
-      "include": "build/installer.nsh"
+      "shortcutName": "Jhonnie Beer"
     },
-    "artifactName": "Uni-PDV-Licenciado-Setup-${version}-${arch}.${ext}"
+    "artifactName": "Jhonnie-Beer-Setup-${version}-${arch}.${ext}"
   },
   "allowScripts": {
     "electron@37.10.3": true,
     "electron-winstaller@5.4.0": true,
     "esbuild@0.25.12": true
   },
-  "productName": "Uni-PDV Licenciado",
-  "artifactName": "Uni-PDV-Licenciado-Setup-${version}-${arch}.${ext}"
+  "productName": "Jhonnie Beer",
+  "artifactName": "Jhonnie-Beer-Setup-${version}-${arch}.${ext}"
 }

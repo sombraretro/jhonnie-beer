@@ -1,9 +1,9 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),os=require('node:os'),fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const {DatabaseSync}=require('node:sqlite');
-const auth=require('../electron/operator-auth');
-const mobile=require('../electron/mobile-server');
-const management=require('../electron/uni-management');
+const auth=require('./operator-auth');
+const mobile=require('./mobile-server');
+const management=require('./uni-management');
 function fixture(){
  const db=new DatabaseSync(':memory:');db.transaction=fn=>(...args)=>{db.exec('BEGIN');try{const value=fn(...args);db.exec('COMMIT');return value}catch(e){db.exec('ROLLBACK');throw e}};db.exec(`CREATE TABLE operators(id INTEGER PRIMARY KEY,name TEXT,photo_data TEXT DEFAULT '',role TEXT DEFAULT 'operator',password_hash TEXT DEFAULT '',active INTEGER DEFAULT 1,created_at TEXT DEFAULT '');CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT);CREATE TABLE products(id INTEGER PRIMARY KEY,name TEXT,item_type TEXT,cost_cents INTEGER DEFAULT 0,price_cents INTEGER DEFAULT 0,sale_mode TEXT DEFAULT 'UNIT');CREATE TABLE kits(id INTEGER PRIMARY KEY,name TEXT);CREATE TABLE sales(id INTEGER PRIMARY KEY,sold_at TEXT,total_cents INTEGER,discount_cents INTEGER DEFAULT 0,delivery_cents INTEGER DEFAULT 0,status TEXT DEFAULT 'CONCLUIDA');CREATE TABLE sale_items(id INTEGER PRIMARY KEY,product_id INTEGER,kit_id INTEGER,sale_id INTEGER,name TEXT,quantity INTEGER,total_cents INTEGER,sale_mode TEXT,weight_grams INTEGER);CREATE TABLE finance_entries(id INTEGER PRIMARY KEY,entry_type TEXT,amount_cents INTEGER,status TEXT,paid_at TEXT,issue_date TEXT);`);auth.ensure(db);return db;
 }

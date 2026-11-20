@@ -7,13 +7,13 @@ let Database;
 let PDFDocument=null;
 const { safeStorage } = require('electron');
 const nfce = require('./nfce');
-const offlineLicense=require('./offline-license.cjs');
-const APP_NAME = 'Uni-PDV Licenciado';
-const STORE_ID = 'br.unisoftwares.unipdv.licenciado';
+
+const APP_NAME = 'Jhonnie Beer';
+const STORE_ID = 'br.unisoftwares.jhonniebeer';
 const DB_FILE = 'pdv-integrado-3.1.db';
 // Base experimental isolada: não modifica os dados da instalação Legacy STABLE.
 // Revisão UX experimental usa base isolada para não alterar o banco da versão STABLE.
-app.setPath('userData', path.join(app.getPath('appData'),'PDV-Loja-Licenciado')); // Dados e licença separados da edição Livre
+app.setPath('userData', path.join(app.getPath('appData'),'Jhonnie Beer')); // Dados e licença separados da edição Livre
 let db;
 let mobileLink=null;
 const now = () => new Date().toISOString();
@@ -131,7 +131,7 @@ function initDb(){
       db.prepare('UPDATE categories SET active=0 WHERE id=?').run(d.id);
     }
   }
-  const defaults={store_name:'Minha Loja',theme:'casa',operator:'',current_operator_id:'',current_operator_name:'',current_operator_photo:'',current_operator_role:'',logo_data:'',fiscal_series:'1',fiscal_next_number:'1',fiscal_environment:'homologacao',company_cnpj:'',company_ie:'',company_legal_name:'',company_fantasy_name:'',company_address:'',company_phone:'',company_city_code:COD_MUN_ARACATUBA,company_crt:'1',fiscal_csc_id:'',fiscal_csc_token:'',fiscal_cert_path:'',fiscal_cert_password_enc:'',fiscal_qrcode_version:'100',fiscal_contingency_enabled:'0',fiscal_last_test:'',fiscal_xml_root:'',backup_schedule_enabled:'0',backup_frequency:'daily',backup_time:'23:00',backup_day_of_week:'1',backup_day_of_month:'1',backup_last_run:'',backup_retention_count:'30',backup_last_error:'',backup_store_id:STORE_ID,last_backup_at:'',last_backup_path:'',cash_default_opening_enabled:'0',cash_default_opening_cents:'0',ux_grouped_sidebar:'1',ux_mode:'complete',scale_enabled:'0',scale_mode:'SIMULATION',scale_port:'COM1',scale_baud_rate:'9600',scale_data_bits:'8',scale_parity:'None',scale_stop_bits:'One',scale_handshake:'None',scale_read_timeout_ms:'1800',scale_request_type:'NONE',scale_request_text:'',scale_input_unit:'kg',scale_regex:'',scale_stable_token:'',scale_allow_manual:'1',scale_last_test_at:'',scale_last_test_status:'',scale_last_error:'',email_host:'',email_port:'587',email_secure:'0',email_sender_name:'',email_user:'',email_from:'',email_password_enc:''};
+  const defaults={store_name:'Jhonnie Beer',theme:'jhonnie',operator:'',current_operator_id:'',current_operator_name:'',current_operator_photo:'',current_operator_role:'',logo_data:'',fiscal_series:'1',fiscal_next_number:'1',fiscal_environment:'homologacao',company_cnpj:'',company_ie:'',company_legal_name:'',company_fantasy_name:'',company_address:'',company_phone:'',company_city_code:COD_MUN_ARACATUBA,company_crt:'1',fiscal_csc_id:'',fiscal_csc_token:'',fiscal_cert_path:'',fiscal_cert_password_enc:'',fiscal_qrcode_version:'100',fiscal_contingency_enabled:'0',fiscal_last_test:'',fiscal_xml_root:'',backup_schedule_enabled:'0',backup_frequency:'daily',backup_time:'23:00',backup_day_of_week:'1',backup_day_of_month:'1',backup_last_run:'',backup_retention_count:'30',backup_last_error:'',backup_store_id:STORE_ID,last_backup_at:'',last_backup_path:'',cash_default_opening_enabled:'0',cash_default_opening_cents:'0',ux_grouped_sidebar:'1',ux_mode:'compact',scale_enabled:'0',scale_mode:'SIMULATION',scale_port:'COM1',scale_baud_rate:'9600',scale_data_bits:'8',scale_parity:'None',scale_stop_bits:'One',scale_handshake:'None',scale_read_timeout_ms:'1800',scale_request_type:'NONE',scale_request_text:'',scale_input_unit:'kg',scale_regex:'',scale_stable_token:'',scale_allow_manual:'1',scale_last_test_at:'',scale_last_test_status:'',scale_last_error:'',email_host:'',email_port:'587',email_secure:'0',email_sender_name:'',email_user:'',email_from:'',email_password_enc:''};
   const set=db.prepare('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)'); Object.entries(defaults).forEach(([k,v])=>set.run(k,v));
   // Migração não destrutiva: bancos legados recebem identidade apenas se ainda não tiverem uma.
   const storedBackupIdentity=db.prepare("SELECT value FROM settings WHERE key='backup_store_id'").get();
@@ -537,6 +537,43 @@ function registerIpc(){
   ipcMain.handle('settings:set',(_,s)=>{const q=db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');db.transaction(o=>Object.entries(o).forEach(([k,v])=>q.run(k,String(v))))(s);return ok(true)});
   function currentOperator(){const id=db.prepare("SELECT value FROM settings WHERE key='current_operator_id'").get()?.value;return id?db.prepare('SELECT * FROM operators WHERE id=? AND active=1').get(Number(id)):null;}
   const requireLogin=()=>{const actor=currentOperator();if(!actor)fail('Faça login para continuar.','AUTH');return actor;};
+  const zeCredentialsPath=()=>path.join(app.getPath('userData'),'ze-delivery-credentials.enc');
+  const readZeCredentials=()=>{
+    const file=zeCredentialsPath();
+    if(!fs.existsSync(file))return null;
+    if(!safeStorage.isEncryptionAvailable())fail('O armazenamento seguro do Windows não está disponível nesta sessão.','ZE_CREDENTIALS_STORE');
+    try{
+      const encrypted=fs.readFileSync(file);
+      const data=JSON.parse(safeStorage.decryptString(encrypted));
+      if(!data||typeof data.clientId!=='string'||typeof data.clientSecret!=='string'||!data.clientId||!data.clientSecret)throw new Error('Formato inválido');
+      return data;
+    }catch(e){fail('Não foi possível desbloquear as credenciais salvas neste Windows. Elas foram mantidas sem alterações. '+(e?.message||''),'ZE_CREDENTIALS_STORE')}
+  };
+  ipcMain.handle('ze-delivery:credentials-status',()=>{
+    requireLogin();
+    const data=readZeCredentials();
+    return ok({configured:!!data,clientIdHint:data?(data.clientId.slice(0,2)+'••••'+data.clientId.slice(-4)):''});
+  });
+  ipcMain.handle('ze-delivery:credentials-save',(_,input={})=>{
+    requireLogin();
+    const clientId=String(input.clientId||'').trim(),clientSecret=String(input.clientSecret||'');
+    if(!clientId||!clientSecret)fail('Informe o Client ID e o Client Secret.','VALIDATION');
+    if(clientId.length>2048||clientSecret.length>8192||/[\u0000-\u001f]/.test(clientId)||/[\u0000-\u001f]/.test(clientSecret))fail('As credenciais possuem formato ou tamanho inválido.','VALIDATION');
+    if(!safeStorage.isEncryptionAvailable())fail('O armazenamento seguro do Windows não está disponível. Nenhuma credencial foi gravada.','ZE_CREDENTIALS_STORE');
+    const target=zeCredentialsPath(),temp=target+'.tmp';
+    try{
+      fs.mkdirSync(path.dirname(target),{recursive:true});
+      const encrypted=safeStorage.encryptString(JSON.stringify({clientId,clientSecret,updatedAt:now()}));
+      fs.writeFileSync(temp,encrypted,{mode:0o600});
+      fs.renameSync(temp,target);
+      return ok({saved:true});
+    }catch(e){try{if(fs.existsSync(temp))fs.unlinkSync(temp)}catch{};fail('Não foi possível salvar as credenciais protegidas. '+(e?.message||e),'ZE_CREDENTIALS_STORE')}
+  });
+  ipcMain.handle('ze-delivery:credentials-delete',()=>{
+    requireLogin();
+    const target=zeCredentialsPath();
+    try{if(fs.existsSync(target))fs.unlinkSync(target);return ok(true)}catch(e){fail('Não foi possível remover as credenciais salvas. '+(e?.message||e),'ZE_CREDENTIALS_STORE')}
+  });
   ipcMain.handle('auth:login',(_,input={})=>{
     const user=String(input.username||'').trim(),pass=String(input.password||'');if(!user||!pass)fail('Informe usuário e senha.','AUTH');
     const row=db.prepare('SELECT * FROM operators WHERE lower(name)=lower(?) AND active=1 LIMIT 1').get(user);const check=row?verifyPassword(pass,row.password_hash):{valid:false,legacy:false};
@@ -1508,9 +1545,9 @@ let appStarted = false;
 function startApplication() {
   if (appStarted) return;
   appStarted = true;
-  try { initDb(); require('./operator-auth').ensure(db); mobileLink=require('./mobile-server').install({ipcMain,getDb:()=>db,app,BrowserWindow,dialog,clipboard:require('electron').clipboard}); registerIpc(); require('./uni-management').install(db,ipcMain); mobileLink.startIfEnabled(); setInterval(()=>scheduledBackup().catch(error=>{try{settingValue('backup_last_error',`${now()} — ${error?.message||String(error)}`)}catch{}}),30000); scheduledBackup().catch(error=>{try{settingValue('backup_last_error',`${now()} — ${error?.message||String(error)}`)}catch{}}); } catch (e) { const detail=e?.message||String(e); try{fs.mkdirSync(app.getPath('userData'),{recursive:true});fs.writeFileSync(path.join(app.getPath('userData'),'startup-error.log'),detail)}catch{}; dialog.showErrorBox('Uni-PDV — erro ao iniciar',detail); app.quit(); return; }
+  try { initDb(); require('./operator-auth').ensure(db); mobileLink=require('./mobile-server').install({ipcMain,getDb:()=>db,app,BrowserWindow,dialog,clipboard:require('electron').clipboard}); registerIpc(); require('./uni-management').install(db,ipcMain); mobileLink.startIfEnabled(); setInterval(()=>scheduledBackup().catch(error=>{try{settingValue('backup_last_error',`${now()} — ${error?.message||String(error)}`)}catch{}}),30000); scheduledBackup().catch(error=>{try{settingValue('backup_last_error',`${now()} — ${error?.message||String(error)}`)}catch{}}); } catch (e) { const detail=e?.message||String(e); try{fs.mkdirSync(app.getPath('userData'),{recursive:true});fs.writeFileSync(path.join(app.getPath('userData'),'startup-error.log'),detail)}catch{}; dialog.showErrorBox('Jhonnie Beer — erro ao iniciar',detail); app.quit(); return; }
   const isDev=!app.isPackaged&&!process.argv.includes('--production');
-  const win=new BrowserWindow({width:1440,height:900,minWidth:1100,minHeight:700,icon:path.join(__dirname,'..','assets','icon.ico'),backgroundColor:'#0b0d10',webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false}});
+  const win=new BrowserWindow({width:1440,height:900,minWidth:1100,minHeight:700,icon:path.join(__dirname,'icon.ico'),backgroundColor:'#0b0d10',webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false}});
   const sendTheme=(theme)=>{db.prepare("INSERT INTO settings(key,value) VALUES('theme',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(theme);win.webContents.send('theme:set',theme)};
   const themeOptions=[
     ['Café','casa'],
@@ -1529,9 +1566,10 @@ function startApplication() {
     ['Rosa','eremenina'],
     ['Carvão & Laranja','cigano'],
     ['Ônix','encruza'],
-    ['Multicolorido','rainbow']
+    ['Multicolorido','rainbow'],
+    ['Jhonnie Beer','jhonnie']
   ];
-  const savedTheme=String(db.prepare("SELECT value FROM settings WHERE key='theme'").get()?.value||'casa');
+  const savedTheme=String(db.prepare("SELECT value FROM settings WHERE key='theme'").get()?.value||'jhonnie');
   const enterFullScreen=()=>{try{win.setKiosk(false);win.setFullScreenable(true);win.setFullScreen(true);}catch{}};
   const exitFullScreen=()=>{try{win.setKiosk(false);win.setFullScreen(false);win.setMenuBarVisibility(true);win.setAutoHideMenuBar(false);win.focus();}catch{}};
   win.on('enter-full-screen',()=>{try{win.setMenuBarVisibility(false);}catch{}});
@@ -1544,10 +1582,10 @@ function startApplication() {
     {label:'Tema',submenu:themeOptions.map(([label,id])=>({label,type:'radio',checked:id===savedTheme,click:()=>sendTheme(id)}))},
     {label:'Sobre',click:()=>{
       if(win.__uniAbout&&!win.__uniAbout.isDestroyed()){win.__uniAbout.show();win.__uniAbout.focus();return;}
-      const art=path.join(__dirname,'..','assets','uni-softwares-logo-sobre.png');
+      const art=path.join(__dirname,'uni-softwares-logo-sobre.png');
       const image=fs.existsSync(art)?`data:image/png;base64,${fs.readFileSync(art).toString('base64')}`:'';
-      const w=new BrowserWindow({width:520,height:590,resizable:false,modal:true,parent:win,show:false,backgroundColor:'#0b1021',webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true}});win.__uniAbout=w;w.on('closed',()=>{win.__uniAbout=null});
-      const html=`<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"></head><body style="margin:0;min-height:100vh;box-sizing:border-box;padding:24px 32px;background:linear-gradient(#090c1a,#14172a);color:#f4f5ff;font-family:Segoe UI,Arial;text-align:center"><img alt="Logo Uni Softwares" src="${image}" style="height:235px;width:235px;border-radius:50%;object-fit:contain"><h1 style="margin:10px 0 5px;color:#69dbff">Uni Softwares</h1><p style="margin:0;color:#c7cbed">Por Rudnei Souza</p><hr style="border:0;border-top:1px solid #334366;margin:16px 0"><h2 style="margin:6px 0;font-size:19px;color:#ffd29c">Uni-PDV</h2><p style="font-size:14px">Sistema de Ponto de Vendas · Versão 3.1</p><p style="font-size:12px;color:#b1b7d0">Desenvolvido em 2026</p></body></html>`;
+      const w=new BrowserWindow({width:520,height:630,resizable:false,modal:true,parent:win,show:false,autoHideMenuBar:true,backgroundColor:'#0b1021',webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true}});w.removeMenu();win.__uniAbout=w;w.on('closed',()=>{win.__uniAbout=null});
+      const html=`<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"></head><body style="margin:0;min-height:100vh;box-sizing:border-box;padding:24px 32px;background:linear-gradient(#090c1a,#14172a);color:#f4f5ff;font-family:Segoe UI,Arial;text-align:center"><img alt="Logo Uni Softwares" src="${image}" style="height:235px;width:235px;border-radius:50%;object-fit:contain"><h1 style="margin:10px 0 5px;color:#69dbff">Uni Softwares</h1><p style="margin:0;color:#c7cbed">Por Rudnei Souza</p><hr style="border:0;border-top:1px solid #334366;margin:16px 0"><h2 style="margin:6px 0;font-size:19px;color:#ffd29c">Uni-PDV</h2><p style="margin:4px 0;font-size:16px;font-weight:700;color:#e9bd68">Jhonnie Beer</p><p style="font-size:14px">Sistema de Ponto de Vendas · Versão 3.2.5</p><p style="font-size:12px;color:#b1b7d0">Desenvolvido em 2026</p></body></html>`;
       const aboutUrl='data:text/html;charset=utf-8,'+encodeURIComponent(html);
       w.once('ready-to-show',()=>{if(!w.isDestroyed())w.show()});
       w.loadURL(aboutUrl).then(()=>{if(!w.isDestroyed()){w.show();w.focus()}}).catch(error=>{console.error('[Sobre] Não foi possível abrir janela:',error);if(!w.isDestroyed()){w.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent('<h2 style="font-family:Arial">Uni Softwares</h2><p>Uni-PDV · Versão 3.1</p><p>Por Rudnei Souza</p>')).catch(()=>{});w.show();}});
@@ -1570,27 +1608,6 @@ function startApplication() {
 
 }
 
-let activationWindow=null;
-function openOfflineActivation(){
-  if(activationWindow&&!activationWindow.isDestroyed()){activationWindow.focus();return;}
-  activationWindow=new BrowserWindow({width:600,height:420,minWidth:500,minHeight:380,resizable:true,autoHideMenuBar:true,title:'Uni-PDV Licenciado · Chave offline',icon:path.join(__dirname,'..','assets','icon.ico'),webPreferences:{preload:path.join(__dirname,'offline-license-preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
-  activationWindow.loadFile(path.join(__dirname,'offline-license.html'));
-  activationWindow.on('closed',()=>{activationWindow=null;if(!appStarted)app.quit()});
-}
-ipcMain.handle('offline-license:status',event=>{
-  if(!activationWindow||event.sender!==activationWindow.webContents)throw Error('Acesso não autorizado.');
-  return offlineLicense.status(app.getPath('userData'),undefined,safeStorage);
-});
-ipcMain.handle('offline-license:activate',(event,input)=>{
-  if(!activationWindow||event.sender!==activationWindow.webContents)throw Error('Acesso não autorizado.');
-  const result=offlineLicense.activate(app.getPath('userData'),input?.serial,undefined,safeStorage);
-  if(result.valid){const w=activationWindow;activationWindow=null;startApplication();if(w&&!w.isDestroyed())w.close();}
-  return result;
-});
-app.whenReady().then(() => {
-  const state=offlineLicense.autoActivate(app.getPath('userData'),undefined,safeStorage);
-  if(!app.isPackaged||state.valid){startApplication();return;}
-  openOfflineActivation();
-});
+app.whenReady().then(()=>startApplication());
 
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
