@@ -537,6 +537,43 @@ function registerIpc(){
   ipcMain.handle('settings:set',(_,s)=>{const q=db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');db.transaction(o=>Object.entries(o).forEach(([k,v])=>q.run(k,String(v))))(s);return ok(true)});
   function currentOperator(){const id=db.prepare("SELECT value FROM settings WHERE key='current_operator_id'").get()?.value;return id?db.prepare('SELECT * FROM operators WHERE id=? AND active=1').get(Number(id)):null;}
   const requireLogin=()=>{const actor=currentOperator();if(!actor)fail('Faça login para continuar.','AUTH');return actor;};
+  const zeCredentialsPath=()=>path.join(app.getPath('userData'),'ze-delivery-credentials.enc');
+  const readZeCredentials=()=>{
+    const file=zeCredentialsPath();
+    if(!fs.existsSync(file))return null;
+    if(!safeStorage.isEncryptionAvailable())fail('O armazenamento seguro do Windows não está disponível nesta sessão.','ZE_CREDENTIALS_STORE');
+    try{
+      const encrypted=fs.readFileSync(file);
+      const data=JSON.parse(safeStorage.decryptString(encrypted));
+      if(!data||typeof data.clientId!=='string'||typeof data.clientSecret!=='string'||!data.clientId||!data.clientSecret)throw new Error('Formato inválido');
+      return data;
+    }catch(e){fail('Não foi possível desbloquear as credenciais salvas neste Windows. Elas foram mantidas sem alterações. '+(e?.message||''),'ZE_CREDENTIALS_STORE')}
+  };
+  ipcMain.handle('ze-delivery:credentials-status',()=>{
+    requireLogin();
+    const data=readZeCredentials();
+    return ok({configured:!!data,clientIdHint:data?(data.clientId.slice(0,2)+'••••'+data.clientId.slice(-4)):''});
+  });
+  ipcMain.handle('ze-delivery:credentials-save',(_,input={})=>{
+    requireLogin();
+    const clientId=String(input.clientId||'').trim(),clientSecret=String(input.clientSecret||'');
+    if(!clientId||!clientSecret)fail('Informe o Client ID e o Client Secret.','VALIDATION');
+    if(clientId.length>2048||clientSecret.length>8192||/[\u0000-\u001f]/.test(clientId)||/[\u0000-\u001f]/.test(clientSecret))fail('As credenciais possuem formato ou tamanho inválido.','VALIDATION');
+    if(!safeStorage.isEncryptionAvailable())fail('O armazenamento seguro do Windows não está disponível. Nenhuma credencial foi gravada.','ZE_CREDENTIALS_STORE');
+    const target=zeCredentialsPath(),temp=target+'.tmp';
+    try{
+      fs.mkdirSync(path.dirname(target),{recursive:true});
+      const encrypted=safeStorage.encryptString(JSON.stringify({clientId,clientSecret,updatedAt:now()}));
+      fs.writeFileSync(temp,encrypted,{mode:0o600});
+      fs.renameSync(temp,target);
+      return ok({saved:true});
+    }catch(e){try{if(fs.existsSync(temp))fs.unlinkSync(temp)}catch{};fail('Não foi possível salvar as credenciais protegidas. '+(e?.message||e),'ZE_CREDENTIALS_STORE')}
+  });
+  ipcMain.handle('ze-delivery:credentials-delete',()=>{
+    requireLogin();
+    const target=zeCredentialsPath();
+    try{if(fs.existsSync(target))fs.unlinkSync(target);return ok(true)}catch(e){fail('Não foi possível remover as credenciais salvas. '+(e?.message||e),'ZE_CREDENTIALS_STORE')}
+  });
   ipcMain.handle('auth:login',(_,input={})=>{
     const user=String(input.username||'').trim(),pass=String(input.password||'');if(!user||!pass)fail('Informe usuário e senha.','AUTH');
     const row=db.prepare('SELECT * FROM operators WHERE lower(name)=lower(?) AND active=1 LIMIT 1').get(user);const check=row?verifyPassword(pass,row.password_hash):{valid:false,legacy:false};
