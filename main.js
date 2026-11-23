@@ -1306,11 +1306,11 @@ if(sale.quote_id){
           grams=Math.round(Number(i.weight_grams||0));
           mixItems=(Array.isArray(i.mix_items)?i.mix_items:[]).map(x=>({product_id:Number(x.product_id),quantity:Math.max(0,Math.round(Number(x.quantity||1))),weight_grams:Math.max(0,Math.round(Number(x.weight_grams||0))),volume_ml:Math.max(0,Math.round(Number(x.volume_ml||0)))})).filter(x=>x.product_id&&(mode==='MIX_WEIGHT'?x.quantity>0:x.volume_ml>0));
           grams=mixItems.reduce((sum,x)=>sum+x.weight_grams,0);volumeMl=mixItems.reduce((sum,x)=>sum+x.volume_ml,0);
-          unitCount=mixItems.reduce((sum,x)=>sum+x.quantity,0);qty=1;unitPrice=Number(kit?.price_cents||unitPrice);
+          unitCount=mixItems.reduce((sum,x)=>sum+x.quantity,0);qty=1;unitPrice=Number(kit?.price_cents||unitPrice);let mixCost=0,mixKnown=mixItems.length>0;for(const x of mixItems){const cp=db.prepare("SELECT cost_cents,COALESCE(sale_mode,'UNIT') sale_mode FROM products WHERE id=?").get(x.product_id);const c=Number(cp?.cost_cents||0);if(!cp||c<=0){mixKnown=false;break;}mixCost+=cp.sale_mode==='WEIGHT'?Math.round(c*x.weight_grams/1000):cp.sale_mode==='VOLUME_L'?Math.round(c*x.volume_ml/1000):cp.sale_mode==='VOLUME_ML'?Math.round(c*x.volume_ml):c*x.quantity;}costTotal=mixKnown?mixCost:null;
           itemTotal=mode==='MIX_VOLUME_L'?Math.round(unitPrice*volumeMl/1000):mode==='MIX_VOLUME_ML'?Math.round(unitPrice*volumeMl):Math.round(unitPrice*grams/1000);
         }
       }else if(i.product_id){
-        const pp=db.prepare("SELECT COALESCE(sale_mode,'UNIT') sale_mode,price_cents,linked_unit_product_id FROM products WHERE id=?").get(i.product_id);
+        const pp=db.prepare("SELECT COALESCE(sale_mode,'UNIT') sale_mode,price_cents,cost_cents,linked_unit_product_id FROM products WHERE id=?").get(i.product_id);
         mode=String(pp?.sale_mode||'UNIT');
         if(mode==='WEIGHT'){
           grams=Math.round(Number(i.weight_grams||0));
