@@ -216,7 +216,8 @@ function reportData(mode,date,month,cashSummaryFn){
   // Rentabilidade estimada: usa o custo atual cadastrado, não um custo histórico congelado na venda.
   const profitLines=db.prepare(`SELECT si.id,si.name,si.product_id,si.kit_id,COALESCE(si.sale_mode,'UNIT') sale_mode,si.quantity,COALESCE(si.weight_grams,0) weight_grams,si.total_cents revenue_cents,
     CASE
-      WHEN COALESCE(si.sale_mode,'UNIT')='MIX_WEIGHT' THEN NULL
+      WHEN si.cost_total_cents IS NOT NULL THEN si.cost_total_cents
+       WHEN COALESCE(si.sale_mode,'UNIT')='MIX_WEIGHT' THEN NULL
       WHEN p.id IS NOT NULL AND COALESCE(p.cost_cents,0)>0 AND COALESCE(si.sale_mode,'UNIT')='WEIGHT' THEN ROUND(p.cost_cents*COALESCE(si.weight_grams,0)/1000.0)
       WHEN p.id IS NOT NULL AND COALESCE(p.cost_cents,0)>0 THEN p.cost_cents*COALESCE(si.quantity,0)
       WHEN si.kit_id IS NOT NULL AND COALESCE(kc.cost_cents,0)>0 THEN kc.cost_cents*COALESCE(si.quantity,0)
@@ -1313,7 +1314,7 @@ if(sale.quote_id){
         const pp=db.prepare("SELECT COALESCE(sale_mode,'UNIT') sale_mode,price_cents,cost_cents,linked_unit_product_id FROM products WHERE id=?").get(i.product_id);
         mode=String(pp?.sale_mode||'UNIT');
         if(mode==='WEIGHT'){
-          grams=Math.round(Number(i.weight_grams||0));
+          grams=Math.round(Number(i.weight_grams||0));costTotal=Number(pp?.cost_cents||0)>0?Math.round(Number(pp.cost_cents)*grams/1000):null;
           unitCount=Math.max(0,Math.round(Number(i.unit_count||0)));
           linkedUnitProductId=pp?.linked_unit_product_id?Number(pp.linked_unit_product_id):null;
           qty=1;
@@ -1323,8 +1324,10 @@ if(sale.quote_id){
           volumeMl=Math.max(0,Math.round(Number(i.volume_ml||0)));qty=1;unitPrice=Number(i.unit_price_cents||pp?.price_cents||unitPrice);itemTotal=mode==='VOLUME_L'?Math.round(unitPrice*volumeMl/1000):Math.round(unitPrice*volumeMl);costTotal=Number(pp?.cost_cents||0)>0?(mode==='VOLUME_L'?Math.round(Number(pp.cost_cents)*volumeMl/1000):Math.round(Number(pp.cost_cents)*volumeMl)):null;
         }
       }
-      const si=db.prepare('INSERT INTO sale_items(sale_id,product_id,kit_id,name,quantity,unit_price_cents,total_cents,sale_mode,weight_grams,unit_count,linked_unit_product_id,volume_ml) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
-        .run(saleId,i.kit_id?null:i.product_id,i.kit_id||null,i.name,qty,unitPrice,itemTotal,mode,grams,unitCount,linkedUnitProductId,volumeMl);
+      if(i.kit_id&&mode==='UNIT'){const parts=db.prepare("SELECT ki.quantity,ki.volume_ml,COALESCE(p.sale_mode,'UNIT') sale_mode,p.cost_cents FROM kit_items ki JOIN products p ON p.id=ki.product_id WHERE ki.kit_id=?").all(Number(i.kit_id));let totalCost=0,known=parts.length>0;for(const part of parts){const c=Number(part.cost_cents||0);if(c<=0){known=false;break;}totalCost+=['VOLUME_L','VOLUME_ML'].includes(part.sale_mode)?(part.sale_mode==='VOLUME_L'?Math.round(c*part.volume_ml/1000):Math.round(c*part.volume_ml)):c*part.quantity;}costTotal=known?totalCost*qty:null;}
+      if(i.product_id&&mode==='UNIT'){const c=Number(db.prepare('SELECT cost_cents FROM products WHERE id=?').get(i.product_id)?.cost_cents||0);costTotal=c>0?c*qty:null;}
+      const si=db.prepare('INSERT INTO sale_items(sale_id,product_id,kit_id,name,quantity,unit_price_cents,total_cents,sale_mode,weight_grams,unit_count,linked_unit_product_id,volume_ml,cost_total_cents) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run(saleId,i.kit_id?null:i.product_id,i.kit_id||null,i.name,qty,unitPrice,itemTotal,mode,grams,unitCount,linkedUnitProductId,volumeMl,costTotal);
       if(['MIX_WEIGHT','MIX_VOLUME_L','MIX_VOLUME_ML'].includes(mode))for(const x of mixItems){const p=db.prepare('SELECT name FROM products WHERE id=?').get(x.product_id);db.prepare('INSERT INTO sale_mix_items(sale_item_id,product_id,product_name,quantity,weight_grams,volume_ml) VALUES(?,?,?,?,?,?)').run(si.lastInsertRowid,x.product_id,p?.name||'',x.quantity||1,x.weight_grams||0,x.volume_ml||0);}
     }
     for(const p of payments){if(!p.original_cents)continue;const fee=Math.round(p.original_cents*Number(p.fee_percent||0)/100);const final=p.final_cents!=null?Number(p.final_cents):p.original_cents+fee;const condition=p.method==='Cartão de crédito'?`Crédito ${p.installments||1}x · taxa ${Number(p.fee_percent||0).toFixed(2)}%`:p.method;db.prepare('INSERT INTO sale_payments(sale_id,customer_id,method,original_cents,fee_percent,fee_cents,final_cents,installments,condition_text,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(saleId,sale.customer_id||null,p.method,p.original_cents,p.fee_percent||0,fee,final,p.installments||1,condition,now())}
