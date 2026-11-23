@@ -56,7 +56,8 @@
       "icon.ico",
       "Logo-Jhonnie-Beer.jpeg",
       "uni-softwares-logo-sobre.png",
-      "cash-register.mp3"
+      "cash-register.mp3",
+      "cash-drawer.js"
     ],
     "asarUnpack": [
       "node_modules/better-sqlite3/**/*"
