@@ -681,7 +681,7 @@ function registerIpc(){
         if(!kit)fail(`Kit / Combo "${name}" não encontrado.`,'NOT_FOUND');
         name=String(kit.name||name);
         price=Number(kit.price_cents||price);
-        if(['MIX_WEIGHT','MIX_VOLUME_L','MIX_VOLUME_ML'].includes(String(kit.kit_type||'STANDARD'))){
+        if(String(kit.kit_type||'STANDARD')==='MIX_WEIGHT'){
           mode='MIX_WEIGHT';
           mixItems=(Array.isArray(i.mix_items)?i.mix_items:[]).map(x=>({product_id:Number(x.product_id),quantity:Math.max(0,Math.round(Number(x.quantity||0))),weight_grams:Math.max(0,Math.round(Number(x.weight_grams||0)))})).filter(x=>x.product_id&&x.quantity>0);
           if(!mixItems.length)fail(`Selecione pelo menos uma cor/produto para ${name}.`,'MIX_EMPTY');
@@ -691,7 +691,7 @@ function registerIpc(){
             seen.add(x.product_id);
             const p=db.prepare("SELECT p.id,p.name,p.active,p.category_id,c.parent_id,p.item_type,COALESCE(p.sale_mode,'UNIT') sale_mode FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.id=?").get(x.product_id);
             if(!p||!p.active)fail('Um produto do Mix não está disponível.','MIX_PRODUCT_NOT_FOUND');
-            if(volumeMix?(!['VOLUME_L','VOLUME_ML'].includes(p.sale_mode)||p.item_type==='SERVICE'):(p.sale_mode!=='UNIT'||p.item_type==='SERVICE'))fail(volumeMix?`O produto "${p.name}" precisa ter controle de volume para participar deste Mix.`:`O produto "${p.name}" precisa ser vendido por unidade para participar do Mix.`,'MIX_PRODUCT_MODE');
+            if(p.sale_mode!=='UNIT'||p.item_type==='SERVICE')fail(`O produto "${p.name}" precisa ser vendido por unidade para participar do Mix.`,'MIX_PRODUCT_MODE');
             if(kit.mix_category_id&&Number(p.category_id)!==Number(kit.mix_category_id)&&Number(p.parent_id)!==Number(kit.mix_category_id))fail(`O produto "${p.name}" não pertence à categoria configurada para este Mix.`,'MIX_CATEGORY');
             if(x.weight_grams<=0)fail(`Informe o peso de ${p.name} dentro do Mix ${name}.`,'MIX_WEIGHT_REQUIRED');
             x.name=p.name;
@@ -1148,7 +1148,7 @@ if(sale.quote_id){
       if(i.kit_id){
         const kit=db.prepare('SELECT * FROM kits WHERE id=? AND active=1').get(i.kit_id);
         if(!kit)fail('Combo não encontrado','NOT_FOUND');
-        if(String(kit.kit_type||'STANDARD')==='MIX_WEIGHT'){
+        if(['MIX_WEIGHT','MIX_VOLUME_L','MIX_VOLUME_ML'].includes(String(kit.kit_type||'STANDARD'))){
           const mixMode=String(kit.kit_type),volumeMix=mixMode!=='MIX_WEIGHT';const mixItems=(Array.isArray(i.mix_items)?i.mix_items:[]).map(x=>({product_id:Number(x.product_id),quantity:Math.max(0,Math.round(Number(x.quantity||1))),weight_grams:Math.max(0,Math.round(Number(x.weight_grams||0))),volume_ml:Math.max(0,Math.round(Number(x.volume_ml||0)))})).filter(x=>x.product_id&&(volumeMix?x.volume_ml>0:x.quantity>0));
           if(!mixItems.length)fail(`Selecione pelo menos uma cor/produto para ${kit.name}.`,'MIX_EMPTY');
           const seen=new Set();
@@ -1157,7 +1157,7 @@ if(sale.quote_id){
             seen.add(x.product_id);
             const p=db.prepare("SELECT p.id,p.name,p.stock,p.active,p.category_id,c.parent_id,p.item_type,COALESCE(p.sale_mode,'UNIT') sale_mode FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.id=?").get(x.product_id);
             if(!p||!p.active)fail('Um produto do Mix não está disponível.','MIX_PRODUCT_NOT_FOUND');
-            if(p.sale_mode!=='UNIT'||p.item_type==='SERVICE')fail(`O produto "${p.name}" precisa ser vendido por unidade para participar do Mix.`,'MIX_PRODUCT_MODE');
+            if(volumeMix?(!['VOLUME_L','VOLUME_ML'].includes(p.sale_mode)||p.item_type==='SERVICE'):(p.sale_mode!=='UNIT'||p.item_type==='SERVICE'))fail(volumeMix?`O produto "${p.name}" precisa ter controle de volume para participar deste Mix.`:`O produto "${p.name}" precisa ser vendido por unidade para participar do Mix.`,'MIX_PRODUCT_MODE');
             if(kit.mix_category_id&&Number(p.category_id)!==Number(kit.mix_category_id)&&Number(p.parent_id)!==Number(kit.mix_category_id))fail(`O produto "${p.name}" não pertence à categoria configurada para este Mix.`,'MIX_CATEGORY');
             if(volumeMix){if(x.volume_ml<=0)fail(`Informe o volume de ${p.name} dentro do Mix ${kit.name}.`,'MIX_VOLUME_REQUIRED');addRequirement(x.product_id,x.volume_ml)}else{if(x.weight_grams<=0)fail(`Informe o peso de ${p.name} dentro do Mix ${kit.name}.`,'MIX_WEIGHT_REQUIRED');addRequirement(x.product_id,x.quantity)}
           }
