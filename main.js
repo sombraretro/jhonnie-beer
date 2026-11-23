@@ -1219,7 +1219,7 @@ if(sale.quote_id){
           const parts=db.prepare("SELECT ki.*,COALESCE(p.sale_mode,'UNIT') sale_mode,p.name product_name FROM kit_items ki JOIN products p ON p.id=ki.product_id WHERE ki.kit_id=?").all(i.kit_id);
           if(!parts.length)fail(`O combo ${kit.name} não possui composição`,'KIT_EMPTY');
           if(parts.some(x=>x.sale_mode==='WEIGHT'))fail(`O combo ${kit.name} possui produto vendido por peso e precisa ser ajustado antes da venda.`,'WEIGHT_IN_KIT');
-          for(const x of parts)addRequirement(x.product_id,x.quantity*i.quantity);
+          for(const x of parts){if(['VOLUME_L','VOLUME_ML'].includes(x.sale_mode)){const ml=Math.max(0,Math.round(Number(x.volume_ml||0)))*i.quantity;if(ml<=0)fail(`O volume de ${x.product_name} no combo ${kit.name} está inválido.`,'KIT_COMPONENT_VOLUME');addRequirement(x.product_id,ml);}else addRequirement(x.product_id,x.quantity*i.quantity);}
           subtotal+=kit.price_cents*i.quantity;
         }
       }else{
