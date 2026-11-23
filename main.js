@@ -7,6 +7,7 @@ let Database;
 let PDFDocument=null;
 const { safeStorage } = require('electron');
 const nfce = require('./nfce');
+const cashDrawer = require('./cash-drawer');
 
 const APP_NAME = 'Jhonnie Beer';
 const STORE_ID = 'br.unisoftwares.jhonniebeer';
@@ -68,6 +69,7 @@ function initDb(){
   CREATE TABLE IF NOT EXISTS appointments(id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,customer_id INTEGER NOT NULL,customer_name TEXT NOT NULL,title TEXT NOT NULL DEFAULT '',scheduled_at TEXT NOT NULL,alert_at TEXT,amount_cents INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'PENDENTE',attendance TEXT DEFAULT '',sale_id INTEGER,notes TEXT DEFAULT '',alerted INTEGER NOT NULL DEFAULT 0,completed_at TEXT,paid_cents INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,FOREIGN KEY(customer_id) REFERENCES customers(id));
   CREATE TABLE IF NOT EXISTS internal_appointments(id INTEGER PRIMARY KEY AUTOINCREMENT,task_kind TEXT NOT NULL DEFAULT 'OUTRO',title TEXT NOT NULL DEFAULT '',scheduled_at TEXT NOT NULL,alert_at TEXT,status TEXT NOT NULL DEFAULT 'PENDENTE',notes TEXT DEFAULT '',alerted INTEGER NOT NULL DEFAULT 0,completed_at TEXT,created_at TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS activity_log(id INTEGER PRIMARY KEY AUTOINCREMENT,created_at TEXT NOT NULL,operator TEXT DEFAULT '',action TEXT NOT NULL,entity_type TEXT DEFAULT '',entity_id INTEGER,details TEXT DEFAULT '');
+  CREATE TABLE IF NOT EXISTS cash_drawer_events(id INTEGER PRIMARY KEY AUTOINCREMENT,created_at TEXT NOT NULL,operator TEXT DEFAULT '',source TEXT NOT NULL,sale_id INTEGER,printer TEXT DEFAULT '',pin INTEGER DEFAULT 2,success INTEGER NOT NULL DEFAULT 0,error TEXT DEFAULT '');
   CREATE INDEX IF NOT EXISTS idx_activity_created ON activity_log(created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_customer_payments_customer ON customer_payments(customer_id);
   CREATE INDEX IF NOT EXISTS idx_appointments_scheduled ON appointments(scheduled_at);
@@ -102,13 +104,13 @@ function initDb(){
   addColumn('products','item_type',"TEXT NOT NULL DEFAULT 'PRODUCT'");
   addColumn('products','duration_minutes',"INTEGER NOT NULL DEFAULT 60");
   addColumn('products','barcode',"TEXT DEFAULT ''"); addColumn('products','ncm',"TEXT DEFAULT ''"); addColumn('products','cfop',"TEXT DEFAULT ''"); addColumn('products','cst_csosn',"TEXT DEFAULT ''"); addColumn('products','origin',"TEXT DEFAULT '0'"); addColumn('products','sale_mode',"TEXT NOT NULL DEFAULT 'UNIT'"); addColumn('products','linked_unit_product_id','INTEGER'); addColumn('products','default_units_per_kg','INTEGER NOT NULL DEFAULT 0'); addColumn('products','track_unit_stock','INTEGER NOT NULL DEFAULT 0'); addColumn('products','unit_stock','INTEGER NOT NULL DEFAULT 0'); addColumn('products','unit_min_stock','INTEGER NOT NULL DEFAULT 0');
-  addColumn('sale_items','sale_mode',"TEXT NOT NULL DEFAULT 'UNIT'"); addColumn('sale_items','weight_grams','INTEGER NOT NULL DEFAULT 0'); addColumn('sale_items','unit_count','INTEGER NOT NULL DEFAULT 0'); addColumn('sale_items','linked_unit_product_id','INTEGER');
-  addColumn('quote_items','sale_mode',"TEXT NOT NULL DEFAULT 'UNIT'"); addColumn('quote_items','weight_grams','INTEGER NOT NULL DEFAULT 0'); addColumn('quote_items','unit_count','INTEGER NOT NULL DEFAULT 0'); addColumn('quote_items','linked_unit_product_id','INTEGER');
+  addColumn('sale_items','sale_mode',"TEXT NOT NULL DEFAULT 'UNIT'"); addColumn('sale_items','weight_grams','INTEGER NOT NULL DEFAULT 0'); addColumn('sale_items','volume_ml','INTEGER NOT NULL DEFAULT 0'); addColumn('sale_items','unit_count','INTEGER NOT NULL DEFAULT 0'); addColumn('sale_items','linked_unit_product_id','INTEGER');
+  addColumn('quote_items','sale_mode',"TEXT NOT NULL DEFAULT 'UNIT'"); addColumn('quote_items','weight_grams','INTEGER NOT NULL DEFAULT 0'); addColumn('quote_items','volume_ml','INTEGER NOT NULL DEFAULT 0'); addColumn('quote_items','unit_count','INTEGER NOT NULL DEFAULT 0'); addColumn('quote_items','linked_unit_product_id','INTEGER');
   db.exec(`CREATE TABLE IF NOT EXISTS unit_stock_movements(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,kind TEXT NOT NULL,quantity INTEGER NOT NULL,reason TEXT DEFAULT '',sale_id INTEGER,created_at TEXT NOT NULL); CREATE INDEX IF NOT EXISTS idx_unit_stock_movements_sale ON unit_stock_movements(sale_id);`);
   db.exec(`CREATE TABLE IF NOT EXISTS sale_mix_items(id INTEGER PRIMARY KEY AUTOINCREMENT,sale_item_id INTEGER NOT NULL,product_id INTEGER NOT NULL,product_name TEXT NOT NULL,quantity INTEGER NOT NULL,FOREIGN KEY(sale_item_id) REFERENCES sale_items(id) ON DELETE CASCADE); CREATE INDEX IF NOT EXISTS idx_sale_mix_items_sale_item ON sale_mix_items(sale_item_id);`);
   db.exec(`CREATE TABLE IF NOT EXISTS quote_mix_items(id INTEGER PRIMARY KEY AUTOINCREMENT,quote_item_id INTEGER NOT NULL,product_id INTEGER NOT NULL,product_name TEXT NOT NULL,quantity INTEGER NOT NULL,FOREIGN KEY(quote_item_id) REFERENCES quote_items(id) ON DELETE CASCADE); CREATE INDEX IF NOT EXISTS idx_quote_mix_items_quote_item ON quote_mix_items(quote_item_id);`);
-  addColumn('sale_mix_items','weight_grams','INTEGER NOT NULL DEFAULT 0');
-  addColumn('quote_mix_items','weight_grams','INTEGER NOT NULL DEFAULT 0');
+  addColumn('sale_mix_items','weight_grams','INTEGER NOT NULL DEFAULT 0'); addColumn('sale_mix_items','volume_ml','INTEGER NOT NULL DEFAULT 0');
+  addColumn('quote_mix_items','weight_grams','INTEGER NOT NULL DEFAULT 0'); addColumn('quote_mix_items','volume_ml','INTEGER NOT NULL DEFAULT 0');
   addColumn('appointments','delivery_method',"TEXT DEFAULT ''"); addColumn('appointments','delivery_address',"TEXT DEFAULT ''"); addColumn('appointments','delivery_phone',"TEXT DEFAULT ''");
   addColumn('stock_movements','sale_mode',"TEXT NOT NULL DEFAULT 'UNIT'"); addColumn('stock_movements','supplier_id','INTEGER');
   addColumn('activity_log','amount_cents','INTEGER NOT NULL DEFAULT 0'); addColumn('activity_log','event_group',"TEXT DEFAULT ''");
@@ -536,6 +538,19 @@ function registerIpc(){
   ipcMain.handle('settings:get',()=>ok(Object.fromEntries(db.prepare('SELECT key,value FROM settings').all().map(x=>[x.key,x.value]))));
   ipcMain.handle('settings:set',(_,s)=>{const q=db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');db.transaction(o=>Object.entries(o).forEach(([k,v])=>q.run(k,String(v))))(s);return ok(true)});
   function currentOperator(){const id=db.prepare("SELECT value FROM settings WHERE key='current_operator_id'").get()?.value;return id?db.prepare('SELECT * FROM operators WHERE id=? AND active=1').get(Number(id)):null;}
+  function settingValue(key,fallback=''){return String(db.prepare('SELECT value FROM settings WHERE key=?').get(key)?.value??fallback);}
+  function triggerCashDrawer(source,operator,saleId=null){
+    const printer=settingValue('cash_drawer_printer_name','EPSON TM-T88V');
+    const pin=Number(settingValue('cash_drawer_pin','2'));
+    const pulseOnMs=Number(settingValue('cash_drawer_pulse_on_ms','100'));
+    const pulseOffMs=Number(settingValue('cash_drawer_pulse_off_ms','100'));
+    let result;
+    try{result=cashDrawer.openDrawer({printer,pin,pulseOnMs,pulseOffMs});}catch(e){result={ok:false,error:e?.message||String(e)}}
+    const error=String(result?.error||'');
+    db.prepare('INSERT INTO cash_drawer_events(created_at,operator,source,sale_id,printer,pin,success,error) VALUES(?,?,?,?,?,?,?,?)').run(now(),String(operator||'Sistema'),source,saleId,printer,pin,result?.ok?1:0,error);
+    activity(operator||'Sistema',result?.ok?'Abriu gaveta de dinheiro':'Falha ao abrir gaveta de dinheiro','cash_drawer',saleId,`${source==='AUTO'?'Automática':'Manual'} · ${printer} · ${result?.ok?'sucesso':error}`,0,'cash');
+    return {...result,source,sale_id:saleId};
+  }
   const requireLogin=()=>{const actor=currentOperator();if(!actor)fail('Faça login para continuar.','AUTH');return actor;};
   const zeCredentialsPath=()=>path.join(app.getPath('userData'),'ze-delivery-credentials.enc');
   const readZeCredentials=()=>{
@@ -634,6 +649,8 @@ function registerIpc(){
   ipcMain.handle('cash:close',()=>{let closedId=null;db.transaction(()=>{const c=db.prepare("SELECT * FROM cash_registers WHERE closing_status='ABERTO' ORDER BY id DESC LIMIT 1").get();if(!c)fail('Não há caixa aberto para fechar.','CASH_CLOSED');const summary=cashSummary(c.id);const expected=Number(summary?.expected_total_cents||0);const t=now();db.prepare("UPDATE cash_registers SET closed_at=?,closing_cents=?,closing_total_cents=?,closing_status='FECHADO' WHERE id=?").run(t,expected,expected,c.id);closedId=Number(c.id);activity(c.operator||'','Fechou caixa','cash',c.id,`Saldo estimado ${pdfMoney(expected)} · retiradas ${pdfMoney(Number(summary?.total_withdrawals_cents||0))}`,expected,'cash')})();return ok(cashSummary(closedId))});
   ipcMain.handle('cash:withdraw',(_,input={})=>ok(db.transaction(()=>{const c=db.prepare("SELECT * FROM cash_registers WHERE closing_status='ABERTO' ORDER BY id DESC LIMIT 1").get();if(!c)fail('Não há caixa aberto para registrar retirada.','CASH_CLOSED');const amount=Math.round(Number(input.amount_cents||0));const reason=String(input.reason||'').trim();const operator=String(input.operator||c.operator||'Caixa').trim()||'Caixa';if(!Number.isFinite(amount)||amount<=0)fail('Informe um valor de retirada maior que zero.','VALIDATION');if(reason.length<3)fail('Informe o motivo da retirada.','VALIDATION');const before=cashSummary(c.id);if(amount>Number(before?.expected_total_cents||0))fail(`A retirada não pode ser maior que o saldo estimado do caixa (${pdfMoney(before?.expected_total_cents||0)}).`,'CASH_WITHDRAWAL_LIMIT');const r=db.prepare('INSERT INTO cash_withdrawals(cash_register_id,amount_cents,reason,operator,created_at) VALUES(?,?,?,?,?)').run(c.id,amount,reason,operator,now());activity(operator,'Registrou retirada de caixa','cash_withdrawal',r.lastInsertRowid,`${reason} · ${pdfMoney(amount)}`,amount,'cash');return cashSummary(c.id)})()));
   ipcMain.handle('cash:history',(_,range={})=>{let sql='SELECT * FROM cash_registers WHERE 1=1';const args=[];if(range.from){sql+=' AND opening_date>=?';args.push(range.from)}if(range.to){sql+=' AND opening_date<=?';args.push(range.to)}return ok(db.prepare(sql+' ORDER BY opened_at DESC').all(...args).map(c=>cashSummary(c.id)))});
+  ipcMain.handle('cash:drawer:open',()=>{const actor=currentOperator();if(!actor)fail('Faça login para abrir a gaveta.','AUTH');if(actor.role!=='admin'&&settingValue('cash_drawer_manual_operator_access','0')!=='1')fail('Seu perfil não tem permissão para abrir a gaveta manualmente.','FORBIDDEN');const current=db.prepare("SELECT id FROM cash_registers WHERE closing_status='ABERTO' ORDER BY id DESC LIMIT 1").get();if(!current)fail('Abra o caixa antes de acionar a gaveta.','CASH_CLOSED');return ok(triggerCashDrawer('MANUAL',actor.name,null))});
+  ipcMain.handle('cash:drawer:history',(_,limit=100)=>ok(db.prepare('SELECT * FROM cash_drawer_events ORDER BY id DESC LIMIT ?').all(Math.max(1,Math.min(500,Number(limit)||100)))));
   function nextQuoteNumber(){return Number(db.prepare('SELECT COALESCE(MAX(number),0)+1 n FROM quotes').get().n||1);}
   function quoteById(id){const q=db.prepare('SELECT * FROM quotes WHERE id=?').get(id);if(!q)fail('Orçamento não encontrado','NOT_FOUND');const items=db.prepare('SELECT * FROM quote_items WHERE quote_id=? ORDER BY id').all(id).map(i=>({...i,mix_items:String(i.sale_mode||'UNIT')==='MIX_WEIGHT'?db.prepare('SELECT product_id,product_name name,quantity,weight_grams FROM quote_mix_items WHERE quote_item_id=? ORDER BY id').all(i.id):[]}));return {...q,items};}
   ipcMain.handle('quotes:list',()=>ok(db.prepare('SELECT * FROM quotes ORDER BY id DESC LIMIT 200').all()));
@@ -1104,7 +1121,7 @@ ipcMain.handle('quotes:set-status',(_,id,status)=>{
   ipcMain.handle('agenda:complete-task',(_,x)=>{const a=db.prepare("SELECT * FROM internal_appointments WHERE id=? AND status='PENDENTE'").get(Number(x.id));if(!a)fail('Tarefa interna não encontrada ou já concluída.','NOT_FOUND');db.prepare("UPDATE internal_appointments SET status='CONCLUIDO',completed_at=? WHERE id=?").run(now(),a.id);return ok(true)});
   ipcMain.handle('agenda:complete-payment',(_,x)=>db.transaction(()=>{const a=db.prepare("SELECT * FROM appointments WHERE id=? AND type='RECEBIMENTO' AND status='PENDENTE'").get(Number(x.id));if(!a)fail('Agendamento de recebimento não encontrado ou já concluído.','NOT_FOUND');const c=db.prepare('SELECT * FROM customers WHERE id=?').get(a.customer_id);if(!c)fail('Cliente não encontrado.','NOT_FOUND');const balance=Math.max(0,Number(c.balance_cents||0));const scheduled=Math.max(0,Number(a.amount_cents||0));const paid=Math.min(balance,scheduled>0?scheduled:balance);const remaining=Math.max(0,balance-paid);if(paid>0){db.prepare('INSERT INTO customer_payments(customer_id,amount_cents,method,note,created_at) VALUES(?,?,?,?,?)').run(c.id,paid,String(x.method||'Dinheiro'),'Recebimento agendado #'+a.id,now());db.prepare('UPDATE customers SET balance_cents=?,updated_at=? WHERE id=?').run(remaining,now(),c.id)}db.prepare("UPDATE appointments SET status='CONCLUIDO',completed_at=?,paid_cents=? WHERE id=?").run(now(),paid,a.id);return ok({paid_cents:paid,remaining_cents:remaining,scheduled_cents:scheduled,customer_name:c.name})})());
   ipcMain.handle('agenda:report',(_,opts={})=>{const mode=opts.mode==='monthly'?'monthly':'daily';const key=mode==='monthly'?String(opts.month||'').slice(0,7):String(opts.date||'').slice(0,10);const n=mode==='monthly'?7:10;const rows=db.prepare(`SELECT *,'customer' agenda_source FROM appointments WHERE substr(scheduled_at,1,${n})=? OR substr(completed_at,1,${n})=? ORDER BY scheduled_at DESC`).all(key,key),internal=db.prepare(`SELECT id,'INTERNO' type,NULL customer_id,'Loja' customer_name,title,scheduled_at,alert_at,0 amount_cents,status,'' attendance,NULL sale_id,notes,alerted,completed_at,0 paid_cents,created_at,task_kind,'' delivery_method,'' delivery_address,'' delivery_phone,'internal' agenda_source FROM internal_appointments WHERE substr(scheduled_at,1,${n})=? OR substr(completed_at,1,${n})=? ORDER BY scheduled_at DESC`).all(key,key);return ok([...rows,...internal].sort((a,b)=>String(b.scheduled_at).localeCompare(String(a.scheduled_at))))});
-  ipcMain.handle('sales:create',(_,sale)=>db.transaction(()=>{
+  ipcMain.handle('sales:create',(_,sale)=>{const result=db.transaction(()=>{
     const openCash=db.prepare("SELECT id FROM cash_registers WHERE closing_status='ABERTO' ORDER BY id DESC LIMIT 1").get();
     if(!openCash)fail('É necessário abrir o caixa antes de realizar uma venda. Abra o caixa no menu Caixa.','CASH_CLOSED');
     if(!Array.isArray(sale.items)||!sale.items.length)fail('O carrinho está vazio','VALIDATION');
@@ -1294,7 +1311,15 @@ if(sourceQuote){
 }
     activity(sale.operator||'Caixa','Registrou venda','sale',saleId,`Total ${pdfMoney(finalTotal)} · ${deliveryRequired?'Entrega ao cliente':'Retirada na loja'}`,finalTotal,'sales');
     return ok(saleId);
-  })());
+  })();
+    if(result?.ok){
+      const committed=db.prepare('SELECT amount_paid_cents,operator FROM sales WHERE id=?').get(Number(result.data));
+      if(committed&&Number(committed.amount_paid_cents||0)>0&&settingValue('cash_drawer_auto_enabled','1')!=='0'){
+        try{triggerCashDrawer('AUTO',committed.operator||sale?.operator||'Caixa',Number(result.data));}catch(e){activity(committed.operator||'Caixa','Falha no acionamento automático da gaveta','cash_drawer',Number(result.data),String(e?.message||e),0,'cash');}
+      }
+    }
+    return result;
+  });
   ipcMain.handle('fiscal:list',()=>ok(db.prepare(`SELECT fd.*,s.sold_at,s.payment FROM fiscal_documents fd LEFT JOIN sales s ON s.id=fd.sale_id ORDER BY fd.issued_at DESC`).all()));
   ipcMain.handle('fiscal:pending-sales',()=>ok(db.prepare("SELECT s.*,GROUP_CONCAT(si.name||CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN ' '||printf('%.3f',COALESCE(si.weight_grams,0)/1000.0)||' kg'||CASE WHEN COALESCE(si.unit_count,0)>0 THEN ' · '||si.unit_count||' un.' ELSE '' END ELSE ' x'||si.quantity END, ', ') items FROM sales s LEFT JOIN sale_items si ON si.sale_id=s.id LEFT JOIN fiscal_documents fd ON fd.sale_id=s.id WHERE fd.id IS NULL AND COALESCE(s.status,'CONCLUIDA')<>'CANCELADA' GROUP BY s.id ORDER BY s.sold_at DESC LIMIT 100").all()));
   ipcMain.handle('fiscal:settings',()=>{const s=Object.fromEntries(db.prepare('SELECT key,value FROM settings').all().map(x=>[x.key,x.value]));delete s.fiscal_cert_password_enc;return ok(s)});
