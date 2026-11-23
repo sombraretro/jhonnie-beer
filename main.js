@@ -1010,7 +1010,7 @@ ipcMain.handle('quotes:set-status',(_,id,status)=>{
         }
         db.prepare('UPDATE products SET item_type=?,duration_minutes=? WHERE id=?').run(isService?'SERVICE':'PRODUCT',isService?Math.max(5,Math.min(1440,Number(p.duration_minutes||60))):60,savedId);
       })();
-      activity(actor,p?.id?'Editou produto':'Cadastrou produto','product',savedId,`${productName} · preço ${pdfMoney(p.price_cents||0)} · estoque ${mode==='WEIGHT'?gramsLabel(stock):`${stock} ${p.unit||'un'}`}`,Number(p.price_cents||0),'products');
+      activity(actor,p?.id?'Editou produto':'Cadastrou produto','product',savedId,`${productName} · preço ${pdfMoney(p.price_cents||0)} · estoque ${mode==='WEIGHT'?gramsLabel(stock):['VOLUME_L','VOLUME_ML'].includes(mode)?`${(stock/1000).toFixed(3)} L`: `${stock} ${p.unit||'un'}`}`,Number(p.price_cents||0),'products');
       if(stockDelta!==0){
         const qtyText=mode==='WEIGHT'?gramsLabel(Math.abs(stockDelta)):['VOLUME_L','VOLUME_ML'].includes(mode)?`${(Math.abs(stockDelta)/1000).toFixed(3)} L`:`${Math.abs(stockDelta)} ${p.unit||'un'}`;
         const cost=Number(p.cost_cents||current?.cost_cents||0);
