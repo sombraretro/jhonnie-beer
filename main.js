@@ -212,7 +212,7 @@ function reportData(mode,date,month,cashSummaryFn){
     :db.prepare("SELECT s.id,s.sold_at,s.operator,s.customer_name,s.total_cents,s.amount_paid_cents,s.due_cents,s.payment,s.delivery_required,s.delivery_method FROM sales s WHERE substr(s.sold_at,1,10)=? AND COALESCE(s.status,'CONCLUIDA')<>'CANCELADA' ORDER BY s.sold_at DESC").all(key);
   const totals=db.prepare(`SELECT COUNT(*) count,COALESCE(SUM(total_cents),0) total,COALESCE(SUM(amount_paid_cents),0) paid,COALESCE(SUM(due_cents),0) due FROM sales WHERE substr(sold_at,1,${n})=? AND COALESCE(status,'CONCLUIDA')<>'CANCELADA'`).get(key);
   const cash=db.prepare(`SELECT * FROM cash_registers WHERE substr(opening_date,1,${n})=? ORDER BY opened_at ${monthly?'DESC':'ASC'}`).all(key).map(c=>cashSummaryFn(c.id));
-  const items=db.prepare(`SELECT si.name,COALESCE(si.sale_mode,'UNIT') sale_mode,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN 0 ELSE si.quantity END) quantity,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN COALESCE(si.weight_grams,0) ELSE 0 END) weight_grams,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN COALESCE(si.unit_count,0) ELSE 0 END) unit_count,SUM(si.total_cents) total_cents FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE substr(s.sold_at,1,${n})=? AND COALESCE(s.status,'CONCLUIDA')<>'CANCELADA' GROUP BY si.name,COALESCE(si.sale_mode,'UNIT') ORDER BY total_cents DESC,si.name`).all(key);
+  const items=db.prepare(`SELECT si.name,COALESCE(si.sale_mode,'UNIT') sale_mode,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT','VOLUME_L','VOLUME_ML','MIX_VOLUME_L','MIX_VOLUME_ML') THEN 0 ELSE si.quantity END) quantity,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN COALESCE(si.weight_grams,0) ELSE 0 END) weight_grams,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('VOLUME_L','VOLUME_ML','MIX_VOLUME_L','MIX_VOLUME_ML') THEN COALESCE(si.volume_ml,0) ELSE 0 END) volume_ml,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN COALESCE(si.unit_count,0) ELSE 0 END) unit_count,SUM(si.total_cents) total_cents FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE substr(s.sold_at,1,${n})=? AND COALESCE(s.status,'CONCLUIDA')<>'CANCELADA' GROUP BY si.name,COALESCE(si.sale_mode,'UNIT') ORDER BY total_cents DESC,si.name`).all(key);
   // Rentabilidade estimada: usa o custo atual cadastrado, não um custo histórico congelado na venda.
   const profitLines=db.prepare(`SELECT si.id,si.name,si.product_id,si.kit_id,COALESCE(si.sale_mode,'UNIT') sale_mode,si.quantity,COALESCE(si.weight_grams,0) weight_grams,si.total_cents revenue_cents,
     CASE
@@ -1012,9 +1012,9 @@ ipcMain.handle('quotes:set-status',(_,id,status)=>{
       })();
       activity(actor,p?.id?'Editou produto':'Cadastrou produto','product',savedId,`${productName} · preço ${pdfMoney(p.price_cents||0)} · estoque ${mode==='WEIGHT'?gramsLabel(stock):`${stock} ${p.unit||'un'}`}`,Number(p.price_cents||0),'products');
       if(stockDelta!==0){
-        const qtyText=mode==='WEIGHT'?gramsLabel(Math.abs(stockDelta)):`${Math.abs(stockDelta)} ${p.unit||'un'}`;
+        const qtyText=mode==='WEIGHT'?gramsLabel(Math.abs(stockDelta)):['VOLUME_L','VOLUME_ML'].includes(mode)?`${(Math.abs(stockDelta)/1000).toFixed(3)} L`:`${Math.abs(stockDelta)} ${p.unit||'un'}`;
         const cost=Number(p.cost_cents||current?.cost_cents||0);
-        const amount=mode==='WEIGHT'?Math.round(cost*Math.abs(stockDelta)/1000):Math.round(cost*Math.abs(stockDelta));
+        const amount=mode==='WEIGHT'||mode==='VOLUME_L'?Math.round(cost*Math.abs(stockDelta)/1000):Math.round(cost*Math.abs(stockDelta));
         activity(actor,stockDelta>0?'Entrada de estoque por cadastro':'Saída de estoque por cadastro','stock',savedId,`${productName} · ${qtyText} · ${p?.id?'ajuste de cadastro':'estoque inicial'}`,amount,'stock');
       }
       return ok(savedId);
@@ -1062,7 +1062,7 @@ ipcMain.handle('quotes:set-status',(_,id,status)=>{
       return {...p,low_stock:low?1:0,out_of_stock:stock<=0?1:0,suggested_reorder:Math.max(0,target-stock),
         estimated_days_left:daily>0?Math.floor(stock/daily):null, no_turnover_90d:sold===0?1:0,
         excess_stock:daily>0&&stock>Math.max(min,Math.ceil(daily*60))?1:(sold===0&&stock>min?1:0),
-        stock_value_cents:weighted?Math.round(Number(p.cost_cents||0)*stock/1000):Math.round(Number(p.cost_cents||0)*stock)};
+        stock_value_cents:weighted||p.sale_mode==='VOLUME_L'?Math.round(Number(p.cost_cents||0)*stock/1000):Math.round(Number(p.cost_cents||0)*stock)};
     }));
   });
   ipcMain.handle('stock:move',(_,m)=>{
@@ -1070,7 +1070,7 @@ ipcMain.handle('quotes:set-status',(_,id,status)=>{
     if(!p)fail('Produto não encontrado','NOT_FOUND');
     if(p.item_type==='SERVICE')fail('Serviços não possuem movimentação de estoque.','SERVICE_STOCK');
     const qty=Math.round(Number(m.quantity));
-    if(!Number.isInteger(qty)||qty<=0)fail(p.sale_mode==='WEIGHT'?'Informe um peso maior que zero.':'Quantidade inválida','VALIDATION');
+    if(!Number.isInteger(qty)||qty<=0)fail(p.sale_mode==='WEIGHT'?'Informe um peso maior que zero.':['VOLUME_L','VOLUME_ML'].includes(p.sale_mode)?'Informe um volume maior que zero.':'Quantidade inválida','VALIDATION');
     const unitQty=Math.max(0,Math.round(Number(m.unit_quantity||0)));
     const supplierId=m.kind==='IN'&&Number(m.supplier_id)>0?Number(m.supplier_id):null;
     if(supplierId&&!db.prepare('SELECT id FROM suppliers WHERE id=?').get(supplierId))fail('Fornecedor não encontrado.','SUPPLIER_NOT_FOUND');
@@ -1084,8 +1084,8 @@ ipcMain.handle('quotes:set-status',(_,id,status)=>{
       db.prepare('INSERT INTO stock_movements(product_id,kind,quantity,unit_cost_cents,reason,created_at,sale_mode,supplier_id) VALUES(?,?,?,?,?,?,?,?)').run(m.product_id,kind,qty,unitCost,m.reason||'',movementTime,p.sale_mode,supplierId);
       if(p.track_unit_stock&&unitQty>0)db.prepare('INSERT INTO unit_stock_movements(product_id,kind,quantity,reason,sale_id,created_at) VALUES(?,?,?,?,?,?)').run(m.product_id,kind,unitQty,m.reason||'',null,movementTime);
     })();
-    const qtyText=p.sale_mode==='WEIGHT'?gramsLabel(qty):`${qty} ${p.unit||'un'}`;
-    const totalValue=p.sale_mode==='WEIGHT'?Math.round(unitCost*qty/1000):Math.round(unitCost*qty);
+    const qtyText=p.sale_mode==='WEIGHT'?gramsLabel(qty):['VOLUME_L','VOLUME_ML'].includes(p.sale_mode)?`${(qty/1000).toFixed(3)} L`:`${qty} ${p.unit||'un'}`;
+    const totalValue=p.sale_mode==='WEIGHT'||p.sale_mode==='VOLUME_L'?Math.round(unitCost*qty/1000):Math.round(unitCost*qty);
     const reason=String(m.reason||'').trim();
     activity(currentOperator()?.name||'Sistema',kind==='IN'?'Entrada de estoque':'Saída de estoque','stock',Number(m.product_id),`${p.name} · ${qtyText}${reason?` · Motivo: ${reason}`:''}${totalValue>0?` · Valor de referência ${pdfMoney(totalValue)}`:''}`,totalValue,'stock');
     return ok(true);
