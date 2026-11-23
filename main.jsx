@@ -691,6 +691,14 @@ function Caixa({settings,notify}){
         const p=productMap.get(Number(i.product_id))||{};
         return {id:`p${i.product_id}`,name:i.name,price_cents:Number(i.unit_price_cents||p.price_cents||0),qty:1,weight_grams:Number(i.weight_grams||0),unit_count:Number(i.unit_count||0),sale_mode:'WEIGHT',unit:'kg',stock:Number(p.stock||0),linked_unit_product_id:p.linked_unit_product_id||null,linked_unit_name:p.linked_unit_name||'',linked_unit_stock:Number(p.linked_unit_stock||0),track_unit_stock:Number(p.track_unit_stock||0),unit_stock:Number(p.unit_stock||0),unit_min_stock:Number(p.unit_min_stock||0),default_units_per_kg:Number(p.default_units_per_kg||0),needs_weigh:true,kit_id:null,product_id:i.product_id};
       }
+      if(['MIX_VOLUME_L','MIX_VOLUME_ML'].includes(mode)&&i.kit_id){
+        const k=kitMap.get(Number(i.kit_id))||{};
+        return {id:`vm${i.kit_id}`,name:i.name,price_cents:Number(i.unit_price_cents||k.price_cents||0),qty:1,volume_ml:Number(i.volume_ml||0),sale_mode:mode,kit_type:mode,mix_items:i.mix_items||[],mix_category_id:k.mix_category_id||null,volume_product_id:k.volume_product_id||null,needs_volume:true,kit_id:i.kit_id,product_id:null};
+      }
+      if(['VOLUME_L','VOLUME_ML'].includes(mode)&&i.product_id){
+        const p=productMap.get(Number(i.product_id))||{};
+        return {id:`v${i.product_id}`,name:i.name,price_cents:Number(i.unit_price_cents||p.price_cents||0),qty:1,volume_ml:Number(i.volume_ml||0),sale_mode:mode,unit:p.unit||'ml',stock:Number(p.stock||0),needs_volume:true,kit_id:null,product_id:i.product_id};
+      }
       if(mode==='MIX_WEIGHT'&&i.kit_id){
         const k=kitMap.get(Number(i.kit_id))||{};
         return {id:`m${i.kit_id}`,name:i.name,price_cents:Number(i.unit_price_cents||k.price_cents||0),qty:1,weight_grams:Number(i.weight_grams||0),unit_count:Number(i.unit_count||0),sale_mode:'MIX_WEIGHT',kit_type:'MIX_WEIGHT',mix_items:i.mix_items||[],mix_category_id:k.mix_category_id||null,mix_category_name:k.mix_category_name||'',weight_product_id:k.weight_product_id||null,needs_weigh:true,kit_id:i.kit_id,product_id:null};
