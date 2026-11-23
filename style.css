@@ -532,3 +532,54 @@ main{margin-left:238px;width:calc(100% - 238px)}
 /* O rodapé lateral agora mostra apenas o estado geral do sistema. */
 .app .sidefoot{min-height:34px;display:flex;align-items:center}
 .app.sidebar-collapsed .sidefoot{min-height:30px;justify-content:center}
+
+/* Jhonnie Beer — navegação compacta e tema da adega */
+.app{--accent:#c69a52}
+.app.ux-mode-compact aside{display:none}
+.app.ux-mode-compact main{margin-left:0;width:100%}
+.app.ux-mode-compact .ux-shortcut-strip{display:none}
+.compact-home-button{display:inline-flex;align-items:center;gap:7px;margin-right:12px;padding:8px 11px;border:1px solid var(--border);border-radius:9px;background:var(--panel2);color:var(--text);font-weight:650}
+.compact-home-button svg{width:17px;height:17px;color:var(--accent)}
+.compact-launcher{display:grid;gap:22px;padding:8px 2px 28px}
+.compact-hero{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:24px 26px;border:1px solid #655137;border-radius:16px;background:linear-gradient(120deg,#171513,#262019 65%,#171513);color:#f8f4ec}
+.compact-kicker{font-size:10px;letter-spacing:.18em;font-weight:800;color:#d8b77d}
+.compact-hero h2{margin:6px 0 3px;font-size:28px;color:#f1d5a3}
+.compact-hero p{margin:0;color:#d0c5b4;font-size:13px}
+.compact-indicators{display:flex;gap:9px;flex-wrap:wrap;justify-content:flex-end}
+.compact-indicators span{display:flex;align-items:center;gap:7px;padding:9px 11px;border:1px solid #655137;border-radius:9px;background:#211d18;color:#e6d5ba;font-size:12px}
+.compact-indicators svg{width:16px;height:16px;color:#c69a52}
+.compact-indicators span.ok{border-color:#3e7653;color:#b5e0c2}
+.compact-menu-group{display:grid;gap:10px}
+.compact-menu-group h3{margin:0;color:var(--text);font-size:13px;letter-spacing:.04em}
+.compact-menu-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:11px}
+.compact-menu-tile{position:relative;display:flex;min-height:104px;flex-direction:column;align-items:flex-start;justify-content:center;gap:10px;padding:15px;border:1px solid var(--border);border-radius:13px;background:var(--panel);color:var(--text);text-align:left;cursor:pointer;transition:border-color .15s,transform .15s,background .15s}
+.compact-menu-tile:hover{border-color:var(--accent);background:var(--panel2);transform:translateY(-2px)}
+.compact-menu-icon{display:grid;place-items:center;width:36px;height:36px;border-radius:10px;background:#3b3022;color:#c69a52}
+.compact-menu-icon svg{width:20px;height:20px}
+.compact-menu-tile b{font-size:13px}
+.compact-menu-arrow{position:absolute;right:12px;bottom:14px;width:15px;height:15px;color:var(--muted)}
+.app.theme-jhonnie{--bg:#171513;--panel:#211e19;--panel2:#2b261f;--text:#f5f0e7;--muted:#c0b5a4;--line:#4a4032;--border:#514431;--input:#191713;--accent:#c99d58;background:var(--bg);color:var(--text)}
+.app.theme-jhonnie aside,.app.theme-jhonnie header{background:#191713;border-color:#493c2b}
+.app.theme-jhonnie .panel,.app.theme-jhonnie .modal,.app.theme-jhonnie .simplecard{background:var(--panel);color:var(--text);border-color:var(--border)}
+.app.theme-jhonnie input,.app.theme-jhonnie select,.app.theme-jhonnie textarea{background:var(--input);color:var(--text);border-color:var(--border)}
+.app.theme-jhonnie .primary{background:#c99d58;color:#21180d}
+.app.theme-jhonnie .muted,.app.theme-jhonnie small{color:#c0b5a4}
+@media(max-width:760px){.compact-hero{align-items:flex-start;flex-direction:column}.compact-indicators{justify-content:flex-start}.compact-menu-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.compact-menu-tile{min-height:90px}}
+
+.login-screen.theme-jhonnie{background:radial-gradient(ellipse at 50% 15%,#3a2c1b 0%,#1b1814 45%,#100f0d 100%);color:#f5f0e7}
+.login-screen.theme-jhonnie .login-card{background:#211e19;border:1px solid #655137;color:#f5f0e7;box-shadow:0 24px 80px rgba(0,0,0,.45)}
+.login-screen.theme-jhonnie .login-card h1{color:#e3bd7a}
+.login-screen.theme-jhonnie .login-card p,.login-screen.theme-jhonnie .login-about{color:#c0b5a4}
+.login-screen.theme-jhonnie input{background:#191713;color:#f5f0e7;border-color:#514431}
+.login-screen.theme-jhonnie .primary{background:#c99d58;color:#21180d}
+
+/* Categorias rápidas para a operação de adega */
+.adega-category-presets{display:grid;gap:12px;margin:0 0 16px;padding:16px;border:1px solid color-mix(in srgb,#c99d58 42%,var(--border));border-radius:13px;background:color-mix(in srgb,#c99d58 5%,var(--panel))}
+.adega-category-presets h3{display:flex;align-items:center;gap:8px;margin:0 0 5px}
+.adega-category-presets h3 svg{width:19px;height:19px;color:var(--accent)}
+.adega-category-presets p{margin:0}
+.adega-preset-list{display:flex;flex-wrap:wrap;gap:8px}
+.adega-preset{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid var(--border);border-radius:999px;background:var(--panel);color:var(--text);font-size:12px;font-weight:650}
+.adega-preset>svg{width:15px;height:15px;color:var(--accent)}
+.adega-preset.exists{border-color:#477c58;background:color-mix(in srgb,#2e8b57 10%,var(--panel))}
+.adega-preset.exists>svg:last-child{color:#4caf70}

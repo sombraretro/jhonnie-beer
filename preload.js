@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('api',{
  ux:{overview:()=>call('ux:overview'),notifications:()=>call('ux:notifications'),search:q=>call('ux:search',q),diagnostics:()=>call('ux:diagnostics')},
  activity:{list:n=>call('activity:list',n)},
  settings:{get:()=>call('settings:get'),set:s=>call('settings:set',s)},
+ zeDelivery:{credentialsStatus:()=>call('ze-delivery:credentials-status'),saveCredentials:c=>call('ze-delivery:credentials-save',c),deleteCredentials:()=>call('ze-delivery:credentials-delete')},
  scale:{settings:()=>call('scale:settings'),status:()=>call('scale:status'),listPorts:()=>call('scale:list-ports'),test:()=>call('scale:test'),capture:()=>call('scale:capture')},
  auth:{login:c=>call('auth:login',c),logout:()=>call('auth:logout'),changePassword:c=>call('auth:change-password',c),changeAdminPassword:p=>call('auth:change-admin-password',p)},
  categories:{list:()=>call('categories:list'),save:c=>call('categories:save',c),delete:id=>call('categories:delete',id),restore:id=>call('categories:restore',id)},
@@ -31,7 +32,7 @@ contextBridge.exposeInMainWorld('api',{
   pdf:id=>call('quotes:pdf',id)
 },
  fiscal:{list:()=>call('fiscal:list'),pendingSales:()=>call('fiscal:pending-sales'),issue:id=>call('fiscal:issue',id),settings:()=>call('fiscal:settings'),saveSettings:s=>call('fiscal:save-settings',s),chooseCertificate:()=>call('fiscal:choose-certificate'),certificateInfo:p=>call('fiscal:certificate-info',p),testStatus:()=>call('fiscal:test-status'),cancel:(id,reason)=>call('fiscal:cancel',id,reason),danfe:id=>call('fiscal:danfe',id),contingency:(id,reason)=>call('fiscal:contingency',id,reason),transmitPending:()=>call('fiscal:transmit-pending')},
- cash:{current:()=>call('cash:current'),open:x=>call('cash:open',x),close:x=>call('cash:close',x),withdraw:x=>call('cash:withdraw',x),history:r=>call('cash:history',r)},
+ cash:{current:()=>call('cash:current'),open:x=>call('cash:open',x),close:x=>call('cash:close',x),withdraw:x=>call('cash:withdraw',x),history:r=>call('cash:history',r),openDrawer:()=>call('cash:drawer:open'),drawerHistory:n=>call('cash:drawer:history',n)},
  agenda:{list:o=>call('agenda:list',o),create:a=>call('agenda:create',a),update:a=>call('agenda:update',a),reconcile:()=>call('agenda:reconcile'),dueAlerts:()=>call('agenda:due-alerts'),attendance:x=>call('agenda:attendance',x),completePayment:x=>call('agenda:complete-payment',x),deliverySales:customerId=>call('agenda:delivery-sales',customerId),completeDelivery:x=>call('agenda:complete-delivery',x),completeTask:x=>call('agenda:complete-task',x),report:o=>call('agenda:report',o)},
  reports:{daily:d=>call('reports:daily',d),monthly:m=>call('reports:monthly',m),export:o=>call('reports:export',o)},
  backup:{create:()=>call('backup:create'),restore:()=>call('backup:restore'),verifyLatest:()=>call('backup:verify-latest'),schedule:c=>call('backup:schedule',c)},

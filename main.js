@@ -7,13 +7,14 @@ let Database;
 let PDFDocument=null;
 const { safeStorage } = require('electron');
 const nfce = require('./nfce');
-const offlineLicense=require('./offline-license.cjs');
-const APP_NAME = 'Uni-PDV Licenciado';
-const STORE_ID = 'br.unisoftwares.unipdv.licenciado';
+const cashDrawer = require('./cash-drawer');
+
+const APP_NAME = 'Jhonnie Beer';
+const STORE_ID = 'br.unisoftwares.jhonniebeer';
 const DB_FILE = 'pdv-integrado-3.1.db';
 // Base experimental isolada: não modifica os dados da instalação Legacy STABLE.
 // Revisão UX experimental usa base isolada para não alterar o banco da versão STABLE.
-app.setPath('userData', path.join(app.getPath('appData'),'PDV-Loja-Licenciado')); // Dados e licença separados da edição Livre
+app.setPath('userData', path.join(app.getPath('appData'),'Jhonnie Beer')); // Dados e licença separados da edição Livre
 let db;
 let mobileLink=null;
 const now = () => new Date().toISOString();
@@ -68,6 +69,7 @@ function initDb(){
   CREATE TABLE IF NOT EXISTS appointments(id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,customer_id INTEGER NOT NULL,customer_name TEXT NOT NULL,title TEXT NOT NULL DEFAULT '',scheduled_at TEXT NOT NULL,alert_at TEXT,amount_cents INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'PENDENTE',attendance TEXT DEFAULT '',sale_id INTEGER,notes TEXT DEFAULT '',alerted INTEGER NOT NULL DEFAULT 0,completed_at TEXT,paid_cents INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,FOREIGN KEY(customer_id) REFERENCES customers(id));
   CREATE TABLE IF NOT EXISTS internal_appointments(id INTEGER PRIMARY KEY AUTOINCREMENT,task_kind TEXT NOT NULL DEFAULT 'OUTRO',title TEXT NOT NULL DEFAULT '',scheduled_at TEXT NOT NULL,alert_at TEXT,status TEXT NOT NULL DEFAULT 'PENDENTE',notes TEXT DEFAULT '',alerted INTEGER NOT NULL DEFAULT 0,completed_at TEXT,created_at TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS activity_log(id INTEGER PRIMARY KEY AUTOINCREMENT,created_at TEXT NOT NULL,operator TEXT DEFAULT '',action TEXT NOT NULL,entity_type TEXT DEFAULT '',entity_id INTEGER,details TEXT DEFAULT '');
+  CREATE TABLE IF NOT EXISTS cash_drawer_events(id INTEGER PRIMARY KEY AUTOINCREMENT,created_at TEXT NOT NULL,operator TEXT DEFAULT '',source TEXT NOT NULL,sale_id INTEGER,printer TEXT DEFAULT '',pin INTEGER DEFAULT 2,success INTEGER NOT NULL DEFAULT 0,error TEXT DEFAULT '');
   CREATE INDEX IF NOT EXISTS idx_activity_created ON activity_log(created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_customer_payments_customer ON customer_payments(customer_id);
   CREATE INDEX IF NOT EXISTS idx_appointments_scheduled ON appointments(scheduled_at);
@@ -102,13 +104,13 @@ function initDb(){
   addColumn('products','item_type',"TEXT NOT NULL DEFAULT 'PRODUCT'");
   addColumn('products','duration_minutes',"INTEGER NOT NULL DEFAULT 60");
   addColumn('products','barcode',"TEXT DEFAULT ''"); addColumn('products','ncm',"TEXT DEFAULT ''"); addColumn('products','cfop',"TEXT DEFAULT ''"); addColumn('products','cst_csosn',"TEXT DEFAULT ''"); addColumn('products','origin',"TEXT DEFAULT '0'"); addColumn('products','sale_mode',"TEXT NOT NULL DEFAULT 'UNIT'"); addColumn('products','linked_unit_product_id','INTEGER'); addColumn('products','default_units_per_kg','INTEGER NOT NULL DEFAULT 0'); addColumn('products','track_unit_stock','INTEGER NOT NULL DEFAULT 0'); addColumn('products','unit_stock','INTEGER NOT NULL DEFAULT 0'); addColumn('products','unit_min_stock','INTEGER NOT NULL DEFAULT 0');
-  addColumn('sale_items','sale_mode',"TEXT NOT NULL DEFAULT 'UNIT'"); addColumn('sale_items','weight_grams','INTEGER NOT NULL DEFAULT 0'); addColumn('sale_items','unit_count','INTEGER NOT NULL DEFAULT 0'); addColumn('sale_items','linked_unit_product_id','INTEGER');
-  addColumn('quote_items','sale_mode',"TEXT NOT NULL DEFAULT 'UNIT'"); addColumn('quote_items','weight_grams','INTEGER NOT NULL DEFAULT 0'); addColumn('quote_items','unit_count','INTEGER NOT NULL DEFAULT 0'); addColumn('quote_items','linked_unit_product_id','INTEGER');
+  addColumn('sale_items','cost_total_cents','INTEGER'); addColumn('sale_items','sale_mode',"TEXT NOT NULL DEFAULT 'UNIT'"); addColumn('sale_items','weight_grams','INTEGER NOT NULL DEFAULT 0'); addColumn('sale_items','volume_ml','INTEGER NOT NULL DEFAULT 0'); addColumn('sale_items','unit_count','INTEGER NOT NULL DEFAULT 0'); addColumn('sale_items','linked_unit_product_id','INTEGER');
+  addColumn('quote_items','sale_mode',"TEXT NOT NULL DEFAULT 'UNIT'"); addColumn('quote_items','weight_grams','INTEGER NOT NULL DEFAULT 0'); addColumn('quote_items','volume_ml','INTEGER NOT NULL DEFAULT 0'); addColumn('quote_items','unit_count','INTEGER NOT NULL DEFAULT 0'); addColumn('quote_items','linked_unit_product_id','INTEGER');
   db.exec(`CREATE TABLE IF NOT EXISTS unit_stock_movements(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,kind TEXT NOT NULL,quantity INTEGER NOT NULL,reason TEXT DEFAULT '',sale_id INTEGER,created_at TEXT NOT NULL); CREATE INDEX IF NOT EXISTS idx_unit_stock_movements_sale ON unit_stock_movements(sale_id);`);
   db.exec(`CREATE TABLE IF NOT EXISTS sale_mix_items(id INTEGER PRIMARY KEY AUTOINCREMENT,sale_item_id INTEGER NOT NULL,product_id INTEGER NOT NULL,product_name TEXT NOT NULL,quantity INTEGER NOT NULL,FOREIGN KEY(sale_item_id) REFERENCES sale_items(id) ON DELETE CASCADE); CREATE INDEX IF NOT EXISTS idx_sale_mix_items_sale_item ON sale_mix_items(sale_item_id);`);
   db.exec(`CREATE TABLE IF NOT EXISTS quote_mix_items(id INTEGER PRIMARY KEY AUTOINCREMENT,quote_item_id INTEGER NOT NULL,product_id INTEGER NOT NULL,product_name TEXT NOT NULL,quantity INTEGER NOT NULL,FOREIGN KEY(quote_item_id) REFERENCES quote_items(id) ON DELETE CASCADE); CREATE INDEX IF NOT EXISTS idx_quote_mix_items_quote_item ON quote_mix_items(quote_item_id);`);
-  addColumn('sale_mix_items','weight_grams','INTEGER NOT NULL DEFAULT 0');
-  addColumn('quote_mix_items','weight_grams','INTEGER NOT NULL DEFAULT 0');
+  addColumn('sale_mix_items','weight_grams','INTEGER NOT NULL DEFAULT 0'); addColumn('sale_mix_items','volume_ml','INTEGER NOT NULL DEFAULT 0');
+  addColumn('quote_mix_items','weight_grams','INTEGER NOT NULL DEFAULT 0'); addColumn('quote_mix_items','volume_ml','INTEGER NOT NULL DEFAULT 0');
   addColumn('appointments','delivery_method',"TEXT DEFAULT ''"); addColumn('appointments','delivery_address',"TEXT DEFAULT ''"); addColumn('appointments','delivery_phone',"TEXT DEFAULT ''");
   addColumn('stock_movements','sale_mode',"TEXT NOT NULL DEFAULT 'UNIT'"); addColumn('stock_movements','supplier_id','INTEGER');
   addColumn('activity_log','amount_cents','INTEGER NOT NULL DEFAULT 0'); addColumn('activity_log','event_group',"TEXT DEFAULT ''");
@@ -117,7 +119,7 @@ function initDb(){
   addColumn('sales','change_cents','INTEGER NOT NULL DEFAULT 0'); addColumn('sales','delivery_cents','INTEGER NOT NULL DEFAULT 0'); addColumn('sales','delivery_required','INTEGER NOT NULL DEFAULT 0'); addColumn('sales','delivery_method',"TEXT DEFAULT ''"); addColumn('sales','discount_cents','INTEGER NOT NULL DEFAULT 0'); addColumn('sales','discount_percent','REAL NOT NULL DEFAULT 0'); addColumn('sales','payment_json',"TEXT DEFAULT '[]'"); addColumn('sales','cash_register_id','INTEGER'); addColumn('products','supplier_id','INTEGER');addColumn('sales','quote_id','INTEGER');
   addColumn('fiscal_documents','protocol','TEXT'); addColumn('fiscal_documents','response_xml','TEXT'); addColumn('fiscal_documents','qr_url','TEXT'); addColumn('fiscal_documents','xml_path','TEXT'); addColumn('fiscal_documents','environment',"TEXT DEFAULT 'homologacao'"); addColumn('fiscal_documents','tp_emis','INTEGER DEFAULT 1');
   const q=db.prepare('INSERT INTO categories(name,icon,active) SELECT ?,?,1 WHERE NOT EXISTS (SELECT 1 FROM categories WHERE lower(name)=lower(?) AND parent_id IS NULL)'); CATEGORIES.forEach((x,i)=>q.run(x,CATEGORY_ICONS[i],x)); q.run('Kits / Combos','layers','Kits / Combos');
-  addColumn('kits','category_id','INTEGER'); addColumn('kits','kit_type',"TEXT NOT NULL DEFAULT 'STANDARD'"); addColumn('kits','weight_product_id','INTEGER'); addColumn('kits','mix_category_id','INTEGER'); const kitCat=db.prepare("SELECT id FROM categories WHERE name='Kits / Combos'").get(); if(kitCat){db.prepare('UPDATE kits SET category_id=? WHERE category_id IS NULL').run(kitCat.id);}
+  addColumn('kits','category_id','INTEGER'); addColumn('kits','kit_type',"TEXT NOT NULL DEFAULT 'STANDARD'"); addColumn('kits','weight_product_id','INTEGER'); addColumn('kits','volume_product_id','INTEGER'); addColumn('kits','mix_category_id','INTEGER'); addColumn('kit_items','volume_ml','INTEGER NOT NULL DEFAULT 0'); const kitCat=db.prepare("SELECT id FROM categories WHERE name='Kits / Combos'").get(); if(kitCat){db.prepare('UPDATE kits SET category_id=? WHERE category_id IS NULL').run(kitCat.id);}
   const COD_MUN_ARACATUBA='3502804';
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode) WHERE barcode IS NOT NULL AND barcode<>'';");
   // cleanup duplicate active categories: keep the oldest ID and preserve references
@@ -131,7 +133,7 @@ function initDb(){
       db.prepare('UPDATE categories SET active=0 WHERE id=?').run(d.id);
     }
   }
-  const defaults={store_name:'Minha Loja',theme:'casa',operator:'',current_operator_id:'',current_operator_name:'',current_operator_photo:'',current_operator_role:'',logo_data:'',fiscal_series:'1',fiscal_next_number:'1',fiscal_environment:'homologacao',company_cnpj:'',company_ie:'',company_legal_name:'',company_fantasy_name:'',company_address:'',company_phone:'',company_city_code:COD_MUN_ARACATUBA,company_crt:'1',fiscal_csc_id:'',fiscal_csc_token:'',fiscal_cert_path:'',fiscal_cert_password_enc:'',fiscal_qrcode_version:'100',fiscal_contingency_enabled:'0',fiscal_last_test:'',fiscal_xml_root:'',backup_schedule_enabled:'0',backup_frequency:'daily',backup_time:'23:00',backup_day_of_week:'1',backup_day_of_month:'1',backup_last_run:'',backup_retention_count:'30',backup_last_error:'',backup_store_id:STORE_ID,last_backup_at:'',last_backup_path:'',cash_default_opening_enabled:'0',cash_default_opening_cents:'0',ux_grouped_sidebar:'1',ux_mode:'complete',scale_enabled:'0',scale_mode:'SIMULATION',scale_port:'COM1',scale_baud_rate:'9600',scale_data_bits:'8',scale_parity:'None',scale_stop_bits:'One',scale_handshake:'None',scale_read_timeout_ms:'1800',scale_request_type:'NONE',scale_request_text:'',scale_input_unit:'kg',scale_regex:'',scale_stable_token:'',scale_allow_manual:'1',scale_last_test_at:'',scale_last_test_status:'',scale_last_error:'',email_host:'',email_port:'587',email_secure:'0',email_sender_name:'',email_user:'',email_from:'',email_password_enc:''};
+  const defaults={store_name:'Jhonnie Beer',theme:'jhonnie',operator:'',current_operator_id:'',current_operator_name:'',current_operator_photo:'',current_operator_role:'',logo_data:'',fiscal_series:'1',fiscal_next_number:'1',fiscal_environment:'homologacao',company_cnpj:'',company_ie:'',company_legal_name:'',company_fantasy_name:'',company_address:'',company_phone:'',company_city_code:COD_MUN_ARACATUBA,company_crt:'1',fiscal_csc_id:'',fiscal_csc_token:'',fiscal_cert_path:'',fiscal_cert_password_enc:'',fiscal_qrcode_version:'100',fiscal_contingency_enabled:'0',fiscal_last_test:'',fiscal_xml_root:'',backup_schedule_enabled:'0',backup_frequency:'daily',backup_time:'23:00',backup_day_of_week:'1',backup_day_of_month:'1',backup_last_run:'',backup_retention_count:'30',backup_last_error:'',backup_store_id:STORE_ID,last_backup_at:'',last_backup_path:'',cash_default_opening_enabled:'0',cash_default_opening_cents:'0',cash_drawer_printer_name:'EPSON TM-T88V',cash_drawer_pin:'2',cash_drawer_pulse_on_ms:'100',cash_drawer_pulse_off_ms:'100',cash_drawer_auto_enabled:'1',cash_drawer_manual_operator_access:'0',ux_grouped_sidebar:'1',ux_mode:'compact',scale_enabled:'0',scale_mode:'SIMULATION',scale_port:'COM1',scale_baud_rate:'9600',scale_data_bits:'8',scale_parity:'None',scale_stop_bits:'One',scale_handshake:'None',scale_read_timeout_ms:'1800',scale_request_type:'NONE',scale_request_text:'',scale_input_unit:'kg',scale_regex:'',scale_stable_token:'',scale_allow_manual:'1',scale_last_test_at:'',scale_last_test_status:'',scale_last_error:'',email_host:'',email_port:'587',email_secure:'0',email_sender_name:'',email_user:'',email_from:'',email_password_enc:''};
   const set=db.prepare('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)'); Object.entries(defaults).forEach(([k,v])=>set.run(k,v));
   // Migração não destrutiva: bancos legados recebem identidade apenas se ainda não tiverem uma.
   const storedBackupIdentity=db.prepare("SELECT value FROM settings WHERE key='backup_store_id'").get();
@@ -210,11 +212,12 @@ function reportData(mode,date,month,cashSummaryFn){
     :db.prepare("SELECT s.id,s.sold_at,s.operator,s.customer_name,s.total_cents,s.amount_paid_cents,s.due_cents,s.payment,s.delivery_required,s.delivery_method FROM sales s WHERE substr(s.sold_at,1,10)=? AND COALESCE(s.status,'CONCLUIDA')<>'CANCELADA' ORDER BY s.sold_at DESC").all(key);
   const totals=db.prepare(`SELECT COUNT(*) count,COALESCE(SUM(total_cents),0) total,COALESCE(SUM(amount_paid_cents),0) paid,COALESCE(SUM(due_cents),0) due FROM sales WHERE substr(sold_at,1,${n})=? AND COALESCE(status,'CONCLUIDA')<>'CANCELADA'`).get(key);
   const cash=db.prepare(`SELECT * FROM cash_registers WHERE substr(opening_date,1,${n})=? ORDER BY opened_at ${monthly?'DESC':'ASC'}`).all(key).map(c=>cashSummaryFn(c.id));
-  const items=db.prepare(`SELECT si.name,COALESCE(si.sale_mode,'UNIT') sale_mode,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN 0 ELSE si.quantity END) quantity,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN COALESCE(si.weight_grams,0) ELSE 0 END) weight_grams,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN COALESCE(si.unit_count,0) ELSE 0 END) unit_count,SUM(si.total_cents) total_cents FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE substr(s.sold_at,1,${n})=? AND COALESCE(s.status,'CONCLUIDA')<>'CANCELADA' GROUP BY si.name,COALESCE(si.sale_mode,'UNIT') ORDER BY total_cents DESC,si.name`).all(key);
+  const items=db.prepare(`SELECT si.name,COALESCE(si.sale_mode,'UNIT') sale_mode,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT','VOLUME_L','VOLUME_ML','MIX_VOLUME_L','MIX_VOLUME_ML') THEN 0 ELSE si.quantity END) quantity,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN COALESCE(si.weight_grams,0) ELSE 0 END) weight_grams,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('VOLUME_L','VOLUME_ML','MIX_VOLUME_L','MIX_VOLUME_ML') THEN COALESCE(si.volume_ml,0) ELSE 0 END) volume_ml,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN COALESCE(si.unit_count,0) ELSE 0 END) unit_count,SUM(si.total_cents) total_cents FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE substr(s.sold_at,1,${n})=? AND COALESCE(s.status,'CONCLUIDA')<>'CANCELADA' GROUP BY si.name,COALESCE(si.sale_mode,'UNIT') ORDER BY total_cents DESC,si.name`).all(key);
   // Rentabilidade estimada: usa o custo atual cadastrado, não um custo histórico congelado na venda.
   const profitLines=db.prepare(`SELECT si.id,si.name,si.product_id,si.kit_id,COALESCE(si.sale_mode,'UNIT') sale_mode,si.quantity,COALESCE(si.weight_grams,0) weight_grams,si.total_cents revenue_cents,
     CASE
-      WHEN COALESCE(si.sale_mode,'UNIT')='MIX_WEIGHT' THEN NULL
+      WHEN si.cost_total_cents IS NOT NULL THEN si.cost_total_cents
+       WHEN COALESCE(si.sale_mode,'UNIT')='MIX_WEIGHT' THEN NULL
       WHEN p.id IS NOT NULL AND COALESCE(p.cost_cents,0)>0 AND COALESCE(si.sale_mode,'UNIT')='WEIGHT' THEN ROUND(p.cost_cents*COALESCE(si.weight_grams,0)/1000.0)
       WHEN p.id IS NOT NULL AND COALESCE(p.cost_cents,0)>0 THEN p.cost_cents*COALESCE(si.quantity,0)
       WHEN si.kit_id IS NOT NULL AND COALESCE(kc.cost_cents,0)>0 THEN kc.cost_cents*COALESCE(si.quantity,0)
@@ -328,7 +331,7 @@ async function writeQuotePdf(out,q,settings){
     doc.font('Helvetica').fontSize(9).text(pdfDateOnly(q.valid_until),left+col,metaY+48,{width:col});
     doc.y=metaY+78;
     const itemWidths=[width-80-110-90,80,110,90];
-    pdfTable(doc,['Produto / Item','Qtd.','Valor unitário','Total'],(q.items||[]).map(i=>[String(i.sale_mode||'UNIT')==='MIX_WEIGHT'&&i.mix_items?.length?`${i.name}\n${i.mix_items.map(x=>`${x.quantity} ${x.name} · ${gramsLabel(x.weight_grams||0)}`).join(' · ')}`:i.name,['WEIGHT','MIX_WEIGHT'].includes(String(i.sale_mode||'UNIT'))?weightedQtyLabel(i.weight_grams,i.unit_count):i.quantity,`${pdfMoney(i.unit_price_cents)}${['WEIGHT','MIX_WEIGHT'].includes(String(i.sale_mode||'UNIT'))?'/kg':''}`,pdfMoney(i.total_cents)]),itemWidths,{fontSize:8,aligns:['left','right','right','right']});
+    pdfTable(doc,['Produto / Item','Qtd.','Valor unitário','Total'],(q.items||[]).map(i=>{const mode=String(i.sale_mode||'UNIT'),volume=['VOLUME_L','VOLUME_ML','MIX_VOLUME_L','MIX_VOLUME_ML'].includes(mode),mix=mode.startsWith('MIX_');const details=mix&&i.mix_items?.length?`\n${i.mix_items.map(x=>`${x.name} · ${volume?`${(Number(x.volume_ml||0)/1000).toFixed(3)} L`:gramsLabel(x.weight_grams||0)}`).join(' · ')}`:'';return [`${i.name}${details}`,['WEIGHT','MIX_WEIGHT'].includes(mode)?weightedQtyLabel(i.weight_grams,i.unit_count):volume?`${(Number(i.volume_ml||0)/1000).toFixed(3)} L`:i.quantity,`${pdfMoney(i.unit_price_cents)}${['WEIGHT','MIX_WEIGHT'].includes(mode)?'/kg':volume?(mode.endsWith('_L')?'/L':'/ml'):''}`,pdfMoney(i.total_cents)]}),itemWidths,{fontSize:8,aligns:['left','right','right','right']});
     const totalsX=right-230;
     const line=(label,value,bold=false)=>{const y=doc.y;doc.font(bold?'Helvetica-Bold':'Helvetica').fontSize(bold?11:9).fillColor('#222222').text(label,totalsX,y,{width:115});doc.text(value,totalsX+115,y,{width:115,align:'right'});doc.y=Math.max(doc.y,y+(bold?17:14));};
     line('Subtotal',pdfMoney(q.subtotal_cents));
@@ -536,7 +539,57 @@ function registerIpc(){
   ipcMain.handle('settings:get',()=>ok(Object.fromEntries(db.prepare('SELECT key,value FROM settings').all().map(x=>[x.key,x.value]))));
   ipcMain.handle('settings:set',(_,s)=>{const q=db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');db.transaction(o=>Object.entries(o).forEach(([k,v])=>q.run(k,String(v))))(s);return ok(true)});
   function currentOperator(){const id=db.prepare("SELECT value FROM settings WHERE key='current_operator_id'").get()?.value;return id?db.prepare('SELECT * FROM operators WHERE id=? AND active=1').get(Number(id)):null;}
+  function settingValue(key,fallback=''){return String(db.prepare('SELECT value FROM settings WHERE key=?').get(key)?.value??fallback);}
+  function triggerCashDrawer(source,operator,saleId=null){
+    const printer=settingValue('cash_drawer_printer_name','EPSON TM-T88V');
+    const pin=Number(settingValue('cash_drawer_pin','2'));
+    const pulseOnMs=Number(settingValue('cash_drawer_pulse_on_ms','100'));
+    const pulseOffMs=Number(settingValue('cash_drawer_pulse_off_ms','100'));
+    let result;
+    try{result=cashDrawer.openDrawer({printer,pin,pulseOnMs,pulseOffMs});}catch(e){result={ok:false,error:e?.message||String(e)}}
+    const error=String(result?.error||'');
+    db.prepare('INSERT INTO cash_drawer_events(created_at,operator,source,sale_id,printer,pin,success,error) VALUES(?,?,?,?,?,?,?,?)').run(now(),String(operator||'Sistema'),source,saleId,printer,pin,result?.ok?1:0,error);
+    activity(operator||'Sistema',result?.ok?'Abriu gaveta de dinheiro':'Falha ao abrir gaveta de dinheiro','cash_drawer',saleId,`${source==='AUTO'?'Automática':'Manual'} · ${printer} · ${result?.ok?'sucesso':error}`,0,'cash');
+    return {...result,source,sale_id:saleId};
+  }
   const requireLogin=()=>{const actor=currentOperator();if(!actor)fail('Faça login para continuar.','AUTH');return actor;};
+  const zeCredentialsPath=()=>path.join(app.getPath('userData'),'ze-delivery-credentials.enc');
+  const readZeCredentials=()=>{
+    const file=zeCredentialsPath();
+    if(!fs.existsSync(file))return null;
+    if(!safeStorage.isEncryptionAvailable())fail('O armazenamento seguro do Windows não está disponível nesta sessão.','ZE_CREDENTIALS_STORE');
+    try{
+      const encrypted=fs.readFileSync(file);
+      const data=JSON.parse(safeStorage.decryptString(encrypted));
+      if(!data||typeof data.clientId!=='string'||typeof data.clientSecret!=='string'||!data.clientId||!data.clientSecret)throw new Error('Formato inválido');
+      return data;
+    }catch(e){fail('Não foi possível desbloquear as credenciais salvas neste Windows. Elas foram mantidas sem alterações. '+(e?.message||''),'ZE_CREDENTIALS_STORE')}
+  };
+  ipcMain.handle('ze-delivery:credentials-status',()=>{
+    requireLogin();
+    const data=readZeCredentials();
+    return ok({configured:!!data,clientIdHint:data?(data.clientId.slice(0,2)+'••••'+data.clientId.slice(-4)):''});
+  });
+  ipcMain.handle('ze-delivery:credentials-save',(_,input={})=>{
+    requireLogin();
+    const clientId=String(input.clientId||'').trim(),clientSecret=String(input.clientSecret||'');
+    if(!clientId||!clientSecret)fail('Informe o Client ID e o Client Secret.','VALIDATION');
+    if(clientId.length>2048||clientSecret.length>8192||/[\u0000-\u001f]/.test(clientId)||/[\u0000-\u001f]/.test(clientSecret))fail('As credenciais possuem formato ou tamanho inválido.','VALIDATION');
+    if(!safeStorage.isEncryptionAvailable())fail('O armazenamento seguro do Windows não está disponível. Nenhuma credencial foi gravada.','ZE_CREDENTIALS_STORE');
+    const target=zeCredentialsPath(),temp=target+'.tmp';
+    try{
+      fs.mkdirSync(path.dirname(target),{recursive:true});
+      const encrypted=safeStorage.encryptString(JSON.stringify({clientId,clientSecret,updatedAt:now()}));
+      fs.writeFileSync(temp,encrypted,{mode:0o600});
+      fs.renameSync(temp,target);
+      return ok({saved:true});
+    }catch(e){try{if(fs.existsSync(temp))fs.unlinkSync(temp)}catch{};fail('Não foi possível salvar as credenciais protegidas. '+(e?.message||e),'ZE_CREDENTIALS_STORE')}
+  });
+  ipcMain.handle('ze-delivery:credentials-delete',()=>{
+    requireLogin();
+    const target=zeCredentialsPath();
+    try{if(fs.existsSync(target))fs.unlinkSync(target);return ok(true)}catch(e){fail('Não foi possível remover as credenciais salvas. '+(e?.message||e),'ZE_CREDENTIALS_STORE')}
+  });
   ipcMain.handle('auth:login',(_,input={})=>{
     const user=String(input.username||'').trim(),pass=String(input.password||'');if(!user||!pass)fail('Informe usuário e senha.','AUTH');
     const row=db.prepare('SELECT * FROM operators WHERE lower(name)=lower(?) AND active=1 LIMIT 1').get(user);const check=row?verifyPassword(pass,row.password_hash):{valid:false,legacy:false};
@@ -591,14 +644,16 @@ function registerIpc(){
     return ok(true);
   });
   const localDate=()=>{const d=new Date();const m=String(d.getMonth()+1).padStart(2,'0');const day=String(d.getDate()).padStart(2,'0');return `${d.getFullYear()}-${m}-${day}`};
-  const cashSummary=(cashId)=>{const id=Number(cashId);const c=db.prepare('SELECT * FROM cash_registers WHERE id=?').get(id);if(!c)return null;const sales=db.prepare("SELECT COUNT(*) count,COALESCE(SUM(total_cents),0) total FROM sales WHERE cash_register_id=? AND COALESCE(status,'CONCLUIDA')<>'CANCELADA'").get(id);const withdrawals=db.prepare('SELECT * FROM cash_withdrawals WHERE cash_register_id=? ORDER BY created_at DESC,id DESC').all(id);const totalWithdrawals=withdrawals.reduce((sum,x)=>sum+Number(x.amount_cents||0),0);const items=db.prepare("SELECT si.name,COALESCE(si.sale_mode,'UNIT') sale_mode,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN 0 ELSE si.quantity END) quantity,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN COALESCE(si.weight_grams,0) ELSE 0 END) weight_grams,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN COALESCE(si.unit_count,0) ELSE 0 END) unit_count,SUM(si.total_cents) total_cents FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE s.cash_register_id=? AND COALESCE(s.status,'CONCLUIDA')<>'CANCELADA' GROUP BY si.name,COALESCE(si.sale_mode,'UNIT') ORDER BY total_cents DESC").all(id);const expected=Math.max(0,Number(c.opening_cents||0)+Number(sales?.total||0)-totalWithdrawals);return {id:Number(c.id),opened_at:String(c.opened_at||''),opening_date:String(c.opening_date||''),opening_cents:Number(c.opening_cents||0),closed_at:c.closed_at?String(c.closed_at):null,closing_cents:c.closing_cents==null?null:Number(c.closing_cents),closing_total_cents:c.closing_total_cents==null?null:Number(c.closing_total_cents),closing_status:String(c.closing_status||''),operator:String(c.operator||''),notes:String(c.notes||''),sales_count:Number(sales?.count||0),total_sales_cents:Number(sales?.total||0),total_withdrawals_cents:totalWithdrawals,expected_total_cents:expected,withdrawals:withdrawals.map(x=>({id:Number(x.id),cash_register_id:Number(x.cash_register_id),amount_cents:Number(x.amount_cents||0),reason:String(x.reason||''),operator:String(x.operator||''),created_at:String(x.created_at||'')})),items:(items||[]).map(x=>({name:String(x.name||''),sale_mode:String(x.sale_mode||'UNIT'),quantity:Number(x.quantity||0),weight_grams:Number(x.weight_grams||0),unit_count:Number(x.unit_count||0),total_cents:Number(x.total_cents||0)}))};};
+  const cashSummary=(cashId)=>{const id=Number(cashId);const c=db.prepare('SELECT * FROM cash_registers WHERE id=?').get(id);if(!c)return null;const sales=db.prepare("SELECT COUNT(*) count,COALESCE(SUM(total_cents),0) total FROM sales WHERE cash_register_id=? AND COALESCE(status,'CONCLUIDA')<>'CANCELADA'").get(id);const withdrawals=db.prepare('SELECT * FROM cash_withdrawals WHERE cash_register_id=? ORDER BY created_at DESC,id DESC').all(id);const totalWithdrawals=withdrawals.reduce((sum,x)=>sum+Number(x.amount_cents||0),0);const items=db.prepare("SELECT si.name,COALESCE(si.sale_mode,'UNIT') sale_mode,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT','VOLUME_L','VOLUME_ML','MIX_VOLUME_L','MIX_VOLUME_ML') THEN 0 ELSE si.quantity END) quantity,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN COALESCE(si.weight_grams,0) ELSE 0 END) weight_grams,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('VOLUME_L','VOLUME_ML','MIX_VOLUME_L','MIX_VOLUME_ML') THEN COALESCE(si.volume_ml,0) ELSE 0 END) volume_ml,SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN COALESCE(si.unit_count,0) ELSE 0 END) unit_count,SUM(si.total_cents) total_cents FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE s.cash_register_id=? AND COALESCE(s.status,'CONCLUIDA')<>'CANCELADA' GROUP BY si.name,COALESCE(si.sale_mode,'UNIT') ORDER BY total_cents DESC").all(id);const expected=Math.max(0,Number(c.opening_cents||0)+Number(sales?.total||0)-totalWithdrawals);return {id:Number(c.id),opened_at:String(c.opened_at||''),opening_date:String(c.opening_date||''),opening_cents:Number(c.opening_cents||0),closed_at:c.closed_at?String(c.closed_at):null,closing_cents:c.closing_cents==null?null:Number(c.closing_cents),closing_total_cents:c.closing_total_cents==null?null:Number(c.closing_total_cents),closing_status:String(c.closing_status||''),operator:String(c.operator||''),notes:String(c.notes||''),sales_count:Number(sales?.count||0),total_sales_cents:Number(sales?.total||0),total_withdrawals_cents:totalWithdrawals,expected_total_cents:expected,withdrawals:withdrawals.map(x=>({id:Number(x.id),cash_register_id:Number(x.cash_register_id),amount_cents:Number(x.amount_cents||0),reason:String(x.reason||''),operator:String(x.operator||''),created_at:String(x.created_at||'')})),items:(items||[]).map(x=>({name:String(x.name||''),sale_mode:String(x.sale_mode||'UNIT'),quantity:Number(x.quantity||0),weight_grams:Number(x.weight_grams||0),volume_ml:Number(x.volume_ml||0),unit_count:Number(x.unit_count||0),total_cents:Number(x.total_cents||0)}))};};
   ipcMain.handle('cash:current',()=>{const c=db.prepare("SELECT * FROM cash_registers WHERE closing_status='ABERTO' ORDER BY id DESC LIMIT 1").get();return ok(c?cashSummary(c.id):null)});
   ipcMain.handle('cash:open',(_,input)=>{const existing=db.prepare("SELECT * FROM cash_registers WHERE closing_status='ABERTO' ORDER BY id DESC LIMIT 1").get();if(existing)fail('Já existe um caixa aberto. Feche o caixa atual antes de abrir outro.','CASH_OPEN');const cents=Math.round(Number(input?.opening_cents||0));if(!Number.isFinite(cents)||cents<0)fail('Informe um valor inicial válido.','VALIDATION');const operator=String(input?.operator||'').trim();if(!operator)fail('Selecione o operador responsável pela abertura do caixa.','VALIDATION');const t=now();const r=db.prepare('INSERT INTO cash_registers(opened_at,opening_date,opening_cents,operator,notes) VALUES(?,?,?,?,?)').run(t,localDate(),cents,operator,String(input?.notes||''));activity(operator,'Abriu caixa','cash',r.lastInsertRowid,`Valor inicial ${pdfMoney(cents)}`,cents,'cash');return ok(cashSummary(r.lastInsertRowid))});
   ipcMain.handle('cash:close',()=>{let closedId=null;db.transaction(()=>{const c=db.prepare("SELECT * FROM cash_registers WHERE closing_status='ABERTO' ORDER BY id DESC LIMIT 1").get();if(!c)fail('Não há caixa aberto para fechar.','CASH_CLOSED');const summary=cashSummary(c.id);const expected=Number(summary?.expected_total_cents||0);const t=now();db.prepare("UPDATE cash_registers SET closed_at=?,closing_cents=?,closing_total_cents=?,closing_status='FECHADO' WHERE id=?").run(t,expected,expected,c.id);closedId=Number(c.id);activity(c.operator||'','Fechou caixa','cash',c.id,`Saldo estimado ${pdfMoney(expected)} · retiradas ${pdfMoney(Number(summary?.total_withdrawals_cents||0))}`,expected,'cash')})();return ok(cashSummary(closedId))});
   ipcMain.handle('cash:withdraw',(_,input={})=>ok(db.transaction(()=>{const c=db.prepare("SELECT * FROM cash_registers WHERE closing_status='ABERTO' ORDER BY id DESC LIMIT 1").get();if(!c)fail('Não há caixa aberto para registrar retirada.','CASH_CLOSED');const amount=Math.round(Number(input.amount_cents||0));const reason=String(input.reason||'').trim();const operator=String(input.operator||c.operator||'Caixa').trim()||'Caixa';if(!Number.isFinite(amount)||amount<=0)fail('Informe um valor de retirada maior que zero.','VALIDATION');if(reason.length<3)fail('Informe o motivo da retirada.','VALIDATION');const before=cashSummary(c.id);if(amount>Number(before?.expected_total_cents||0))fail(`A retirada não pode ser maior que o saldo estimado do caixa (${pdfMoney(before?.expected_total_cents||0)}).`,'CASH_WITHDRAWAL_LIMIT');const r=db.prepare('INSERT INTO cash_withdrawals(cash_register_id,amount_cents,reason,operator,created_at) VALUES(?,?,?,?,?)').run(c.id,amount,reason,operator,now());activity(operator,'Registrou retirada de caixa','cash_withdrawal',r.lastInsertRowid,`${reason} · ${pdfMoney(amount)}`,amount,'cash');return cashSummary(c.id)})()));
   ipcMain.handle('cash:history',(_,range={})=>{let sql='SELECT * FROM cash_registers WHERE 1=1';const args=[];if(range.from){sql+=' AND opening_date>=?';args.push(range.from)}if(range.to){sql+=' AND opening_date<=?';args.push(range.to)}return ok(db.prepare(sql+' ORDER BY opened_at DESC').all(...args).map(c=>cashSummary(c.id)))});
+  ipcMain.handle('cash:drawer:open',()=>{const actor=currentOperator();if(!actor)fail('Faça login para abrir a gaveta.','AUTH');if(actor.role!=='admin'&&settingValue('cash_drawer_manual_operator_access','0')!=='1')fail('Seu perfil não tem permissão para abrir a gaveta manualmente.','FORBIDDEN');const current=db.prepare("SELECT id FROM cash_registers WHERE closing_status='ABERTO' ORDER BY id DESC LIMIT 1").get();if(!current)fail('Abra o caixa antes de acionar a gaveta.','CASH_CLOSED');return ok(triggerCashDrawer('MANUAL',actor.name,null))});
+  ipcMain.handle('cash:drawer:history',(_,limit=100)=>ok(db.prepare('SELECT * FROM cash_drawer_events ORDER BY id DESC LIMIT ?').all(Math.max(1,Math.min(500,Number(limit)||100)))));
   function nextQuoteNumber(){return Number(db.prepare('SELECT COALESCE(MAX(number),0)+1 n FROM quotes').get().n||1);}
-  function quoteById(id){const q=db.prepare('SELECT * FROM quotes WHERE id=?').get(id);if(!q)fail('Orçamento não encontrado','NOT_FOUND');const items=db.prepare('SELECT * FROM quote_items WHERE quote_id=? ORDER BY id').all(id).map(i=>({...i,mix_items:String(i.sale_mode||'UNIT')==='MIX_WEIGHT'?db.prepare('SELECT product_id,product_name name,quantity,weight_grams FROM quote_mix_items WHERE quote_item_id=? ORDER BY id').all(i.id):[]}));return {...q,items};}
+  function quoteById(id){const q=db.prepare('SELECT * FROM quotes WHERE id=?').get(id);if(!q)fail('Orçamento não encontrado','NOT_FOUND');const items=db.prepare('SELECT * FROM quote_items WHERE quote_id=? ORDER BY id').all(id).map(i=>({...i,mix_items:['MIX_WEIGHT','MIX_VOLUME_L','MIX_VOLUME_ML'].includes(String(i.sale_mode||'UNIT'))?db.prepare('SELECT product_id,product_name name,quantity,weight_grams,volume_ml FROM quote_mix_items WHERE quote_item_id=? ORDER BY id').all(i.id):[]}));return {...q,items};}
   ipcMain.handle('quotes:list',()=>ok(db.prepare('SELECT * FROM quotes ORDER BY id DESC LIMIT 200').all()));
   ipcMain.handle('quotes:detail',(_,id)=>ok(quoteById(id)));
   ipcMain.handle('quotes:create',(_,input={})=>ok(db.transaction(()=>{
@@ -608,7 +663,7 @@ function registerIpc(){
       const productId=i.product_id?Number(i.product_id):null;
       const kitId=i.kit_id?Number(i.kit_id):null;
       let price=Math.max(0,Number(i.unit_price_cents||0));
-      let mode='UNIT',qty=Math.max(1,Math.round(Number(i.quantity||1))),grams=0,unitCount=0,linkedUnitProductId=null,total=price*qty,name=String(i.name||'Item'),mixItems=[];
+      let mode='UNIT',qty=Math.max(1,Math.round(Number(i.quantity||1))),grams=0,volumeMl=0,unitCount=0,linkedUnitProductId=null,total=price*qty,name=String(i.name||'Item'),mixItems=[];
       if(productId){
         const p=db.prepare("SELECT id,name,COALESCE(sale_mode,'UNIT') sale_mode,linked_unit_product_id FROM products WHERE id=? AND active=1").get(productId);
         if(!p)fail(`Produto "${name}" não encontrado.`, 'NOT_FOUND');
@@ -621,6 +676,10 @@ function registerIpc(){
           unitCount=Math.max(0,Math.round(Number(i.unit_count||0)));
           linkedUnitProductId=p.linked_unit_product_id?Number(p.linked_unit_product_id):null;
           total=Math.round(price*grams/1000);
+        }else if(['VOLUME_L','VOLUME_ML'].includes(mode)){
+          volumeMl=Math.max(0,Math.round(Number(i.volume_ml||0)));
+          if(volumeMl<=0)fail(`Informe o volume estimado de ${name}.`,'VOLUME_REQUIRED');
+          qty=1;total=mode==='VOLUME_L'?Math.round(price*volumeMl/1000):Math.round(price*volumeMl);
         }
       }else if(kitId){
         const kit=db.prepare("SELECT * FROM kits WHERE id=? AND active=1").get(kitId);
@@ -647,9 +706,26 @@ function registerIpc(){
           unitCount=mixItems.reduce((sum,x)=>sum+x.quantity,0);
           qty=1;
           total=Math.round(price*grams/1000);
+        }else if(['MIX_VOLUME_L','MIX_VOLUME_ML'].includes(String(kit.kit_type||''))){
+          mode=String(kit.kit_type);
+          mixItems=(Array.isArray(i.mix_items)?i.mix_items:[]).map(x=>({product_id:Number(x.product_id),quantity:1,weight_grams:0,volume_ml:Math.max(0,Math.round(Number(x.volume_ml||0)))})).filter(x=>x.product_id&&x.volume_ml>0);
+          if(!mixItems.length)fail(`Selecione ao menos um produto líquido para ${name}.`,'MIX_EMPTY');
+          const seen=new Set();
+          for(const x of mixItems){
+            if(seen.has(x.product_id))fail('Há produto repetido na composição do Mix.','MIX_DUPLICATE');seen.add(x.product_id);
+            const p=db.prepare("SELECT p.id,p.name,p.active,p.category_id,c.parent_id,p.item_type,COALESCE(p.sale_mode,'UNIT') sale_mode FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.id=?").get(x.product_id);
+            if(!p||!p.active)fail('Um produto do Mix não está disponível.','MIX_PRODUCT_NOT_FOUND');
+            if(!['VOLUME_L','VOLUME_ML'].includes(p.sale_mode)||p.item_type==='SERVICE')fail(`O produto "${p.name}" precisa ter controle de volume para participar deste Mix.`,'MIX_PRODUCT_MODE');
+            if(kit.mix_category_id&&Number(p.category_id)!==Number(kit.mix_category_id)&&Number(p.parent_id)!==Number(kit.mix_category_id))fail(`O produto "${p.name}" não pertence à categoria configurada para este Mix.`,'MIX_CATEGORY');
+            x.name=p.name;
+          }
+          volumeMl=mixItems.reduce((sum,x)=>sum+x.volume_ml,0);qty=1;
+          if(volumeMl<=0)fail(`Informe o volume dos produtos de ${name}.`,'VOLUME_REQUIRED');
+          if(kit.volume_product_id&&mixItems.some(x=>x.product_id===Number(kit.volume_product_id)))fail('O estoque-base de volume não pode ser repetido como componente do mesmo Mix.','MIX_VOLUME_BASE_DUPLICATE');
+          total=mode==='MIX_VOLUME_L'?Math.round(price*volumeMl/1000):Math.round(price*volumeMl);
         }
       }
-      return {product_id:productId,kit_id:kitId,name,quantity:qty,unit_price_cents:price,total_cents:total,sale_mode:mode,weight_grams:grams,unit_count:unitCount,linked_unit_product_id:linkedUnitProductId,mix_items:mixItems};
+      return {product_id:productId,kit_id:kitId,name,quantity:qty,unit_price_cents:price,total_cents:total,sale_mode:mode,weight_grams:grams,volume_ml:volumeMl,unit_count:unitCount,linked_unit_product_id:linkedUnitProductId,mix_items:mixItems};
     });
     const subtotal=normalized.reduce((sum,i)=>sum+i.total_cents,0);
     const discountPercent=Math.min(100,Math.max(0,Number(input.discount_percent||0)));
@@ -662,9 +738,9 @@ function registerIpc(){
     const result=db.prepare('INSERT INTO quotes(number,created_at,valid_until,customer_id,customer_name,customer_phone,customer_address,operator,subtotal_cents,discount_cents,discount_percent,total_cents,notes,status,delivery_cents) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(number,now(),input.valid_until||null,customer?.id||null,customer?.name||String(input.customer_name||''),customer?.phone||String(input.customer_phone||''),customer?.address||String(input.customer_address||''),String(input.operator||'Caixa'),subtotal,discount,discountPercent,total,String(input.notes||''),'ABERTO',delivery);
     const quoteId=result.lastInsertRowid;
-    const ins=db.prepare('INSERT INTO quote_items(quote_id,product_id,kit_id,name,quantity,unit_price_cents,total_cents,sale_mode,weight_grams,unit_count,linked_unit_product_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)');
-    const mixIns=db.prepare('INSERT INTO quote_mix_items(quote_item_id,product_id,product_name,quantity,weight_grams) VALUES(?,?,?,?,?)');
-    for(const i of normalized){const qi=ins.run(quoteId,i.product_id,i.kit_id,i.name,i.quantity,i.unit_price_cents,i.total_cents,i.sale_mode,i.weight_grams,i.unit_count,i.linked_unit_product_id);if(i.sale_mode==='MIX_WEIGHT')for(const x of i.mix_items||[])mixIns.run(qi.lastInsertRowid,x.product_id,x.name||'',x.quantity,x.weight_grams||0);}
+    const ins=db.prepare('INSERT INTO quote_items(quote_id,product_id,kit_id,name,quantity,unit_price_cents,total_cents,sale_mode,weight_grams,unit_count,linked_unit_product_id,volume_ml) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)');
+    const mixIns=db.prepare('INSERT INTO quote_mix_items(quote_item_id,product_id,product_name,quantity,weight_grams,volume_ml) VALUES(?,?,?,?,?,?)');
+    for(const i of normalized){const qi=ins.run(quoteId,i.product_id,i.kit_id,i.name,i.quantity,i.unit_price_cents,i.total_cents,i.sale_mode,i.weight_grams,i.unit_count,i.linked_unit_product_id,i.volume_ml||0);if(['MIX_WEIGHT','MIX_VOLUME_L','MIX_VOLUME_ML'].includes(i.sale_mode))for(const x of i.mix_items||[])mixIns.run(qi.lastInsertRowid,x.product_id,x.name||'',x.quantity||1,x.weight_grams||0,x.volume_ml||0);}
     return quoteById(quoteId);
   })()));
   ipcMain.handle('quotes:update',(_,id,input={})=>ok(db.transaction(()=>{
@@ -678,7 +754,7 @@ function registerIpc(){
       const productId=i.product_id?Number(i.product_id):null;
       const kitId=i.kit_id?Number(i.kit_id):null;
       let price=Math.max(0,Number(i.unit_price_cents||0));
-      let mode='UNIT',qty=Math.max(1,Math.round(Number(i.quantity||1))),grams=0,unitCount=0,linkedUnitProductId=null,total=price*qty,name=String(i.name||'Item'),mixItems=[];
+      let mode='UNIT',qty=Math.max(1,Math.round(Number(i.quantity||1))),grams=0,volumeMl=0,unitCount=0,linkedUnitProductId=null,total=price*qty,name=String(i.name||'Item'),mixItems=[];
       if(productId){
         const p=db.prepare("SELECT id,name,COALESCE(sale_mode,'UNIT') sale_mode,linked_unit_product_id FROM products WHERE id=? AND active=1").get(productId);
         if(!p)fail(`Produto "${name}" não encontrado.`,'NOT_FOUND');
@@ -691,6 +767,10 @@ function registerIpc(){
           unitCount=Math.max(0,Math.round(Number(i.unit_count||0)));
           linkedUnitProductId=p.linked_unit_product_id?Number(p.linked_unit_product_id):null;
           total=Math.round(price*grams/1000);
+        }else if(['VOLUME_L','VOLUME_ML'].includes(mode)){
+          volumeMl=Math.max(0,Math.round(Number(i.volume_ml||0)));
+          if(volumeMl<=0)fail(`Informe o volume estimado de ${name}.`,'VOLUME_REQUIRED');
+          qty=1;total=mode==='VOLUME_L'?Math.round(price*volumeMl/1000):Math.round(price*volumeMl);
         }
       }else if(kitId){
         const kit=db.prepare("SELECT * FROM kits WHERE id=? AND active=1").get(kitId);
@@ -717,9 +797,26 @@ function registerIpc(){
           unitCount=mixItems.reduce((sum,x)=>sum+x.quantity,0);
           qty=1;
           total=Math.round(price*grams/1000);
+        }else if(['MIX_VOLUME_L','MIX_VOLUME_ML'].includes(String(kit.kit_type||''))){
+          mode=String(kit.kit_type);
+          mixItems=(Array.isArray(i.mix_items)?i.mix_items:[]).map(x=>({product_id:Number(x.product_id),quantity:1,weight_grams:0,volume_ml:Math.max(0,Math.round(Number(x.volume_ml||0)))})).filter(x=>x.product_id&&x.volume_ml>0);
+          if(!mixItems.length)fail(`Selecione ao menos um produto líquido para ${name}.`,'MIX_EMPTY');
+          const seen=new Set();
+          for(const x of mixItems){
+            if(seen.has(x.product_id))fail('Há produto repetido na composição do Mix.','MIX_DUPLICATE');seen.add(x.product_id);
+            const p=db.prepare("SELECT p.id,p.name,p.active,p.category_id,c.parent_id,p.item_type,COALESCE(p.sale_mode,'UNIT') sale_mode FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.id=?").get(x.product_id);
+            if(!p||!p.active)fail('Um produto do Mix não está disponível.','MIX_PRODUCT_NOT_FOUND');
+            if(!['VOLUME_L','VOLUME_ML'].includes(p.sale_mode)||p.item_type==='SERVICE')fail(`O produto "${p.name}" precisa ter controle de volume para participar deste Mix.`,'MIX_PRODUCT_MODE');
+            if(kit.mix_category_id&&Number(p.category_id)!==Number(kit.mix_category_id)&&Number(p.parent_id)!==Number(kit.mix_category_id))fail(`O produto "${p.name}" não pertence à categoria configurada para este Mix.`,'MIX_CATEGORY');
+            x.name=p.name;
+          }
+          volumeMl=mixItems.reduce((sum,x)=>sum+x.volume_ml,0);qty=1;
+          if(volumeMl<=0)fail(`Informe o volume dos produtos de ${name}.`,'VOLUME_REQUIRED');
+          if(kit.volume_product_id&&mixItems.some(x=>x.product_id===Number(kit.volume_product_id)))fail('O estoque-base de volume não pode ser repetido como componente do mesmo Mix.','MIX_VOLUME_BASE_DUPLICATE');
+          total=mode==='MIX_VOLUME_L'?Math.round(price*volumeMl/1000):Math.round(price*volumeMl);
         }
       }
-      return {product_id:productId,kit_id:kitId,name,quantity:qty,unit_price_cents:price,total_cents:total,sale_mode:mode,weight_grams:grams,unit_count:unitCount,linked_unit_product_id:linkedUnitProductId,mix_items:mixItems};
+      return {product_id:productId,kit_id:kitId,name,quantity:qty,unit_price_cents:price,total_cents:total,sale_mode:mode,weight_grams:grams,volume_ml:volumeMl,unit_count:unitCount,linked_unit_product_id:linkedUnitProductId,mix_items:mixItems};
     });
     const subtotal=normalized.reduce((sum,i)=>sum+i.total_cents,0);
     const discountPercent=Math.min(100,Math.max(0,Number(input.discount_percent||0)));
@@ -732,9 +829,9 @@ function registerIpc(){
       .run(input.valid_until||null,customer?.id||null,customer?.name||String(input.customer_name||''),customer?.phone||String(input.customer_phone||''),customer?.address||String(input.customer_address||''),String(input.operator||current.operator||'Caixa'),subtotal,discount,discountPercent,total,String(input.notes||''),'ABERTO',delivery,quoteId);
     db.prepare('DELETE FROM quote_mix_items WHERE quote_item_id IN (SELECT id FROM quote_items WHERE quote_id=?)').run(quoteId);
     db.prepare('DELETE FROM quote_items WHERE quote_id=?').run(quoteId);
-    const ins=db.prepare('INSERT INTO quote_items(quote_id,product_id,kit_id,name,quantity,unit_price_cents,total_cents,sale_mode,weight_grams,unit_count,linked_unit_product_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)');
-    const mixIns=db.prepare('INSERT INTO quote_mix_items(quote_item_id,product_id,product_name,quantity,weight_grams) VALUES(?,?,?,?,?)');
-    for(const i of normalized){const qi=ins.run(quoteId,i.product_id,i.kit_id,i.name,i.quantity,i.unit_price_cents,i.total_cents,i.sale_mode,i.weight_grams,i.unit_count,i.linked_unit_product_id);if(i.sale_mode==='MIX_WEIGHT')for(const x of i.mix_items||[])mixIns.run(qi.lastInsertRowid,x.product_id,x.name||'',x.quantity,x.weight_grams||0);}
+    const ins=db.prepare('INSERT INTO quote_items(quote_id,product_id,kit_id,name,quantity,unit_price_cents,total_cents,sale_mode,weight_grams,unit_count,linked_unit_product_id,volume_ml) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)');
+    const mixIns=db.prepare('INSERT INTO quote_mix_items(quote_item_id,product_id,product_name,quantity,weight_grams,volume_ml) VALUES(?,?,?,?,?,?)');
+    for(const i of normalized){const qi=ins.run(quoteId,i.product_id,i.kit_id,i.name,i.quantity,i.unit_price_cents,i.total_cents,i.sale_mode,i.weight_grams,i.unit_count,i.linked_unit_product_id,i.volume_ml||0);if(['MIX_WEIGHT','MIX_VOLUME_L','MIX_VOLUME_ML'].includes(i.sale_mode))for(const x of i.mix_items||[])mixIns.run(qi.lastInsertRowid,x.product_id,x.name||'',x.quantity||1,x.weight_grams||0,x.volume_ml||0);}
     activity(String(input.operator||current.operator||''),'Editou orçamento','quote',quoteId,`Orçamento #${current.number}`);
     return quoteById(quoteId);
   })()));
@@ -903,7 +1000,7 @@ ipcMain.handle('quotes:set-status',(_,id,status)=>{
     const barcode=String(p?.barcode||'').replace(/\D/g,'');
     try{
       const isService=String(p?.item_type||'PRODUCT').toUpperCase()==='SERVICE';
-      const mode=isService?'UNIT':String(p?.sale_mode||'UNIT').toUpperCase()==='WEIGHT'?'WEIGHT':'UNIT';
+      const requestedMode=String(p?.sale_mode||'UNIT').toUpperCase();const mode=isService?'UNIT':(['WEIGHT','VOLUME_L','VOLUME_ML'].includes(requestedMode)?requestedMode:'UNIT');
       const stock=isService?0:Math.max(0,Math.round(Number(p?.stock||0)));
       const minStock=isService?0:Math.max(0,Math.round(Number(p?.min_stock||0)));
       let linkedUnitProductId=mode==='WEIGHT'&&p?.linked_unit_product_id?Number(p.linked_unit_product_id):null;
@@ -938,14 +1035,14 @@ ipcMain.handle('quotes:set-status',(_,id,status)=>{
           stockDelta=stock-Number(current.stock||0);
           unitDelta=unitStock-Number(current.unit_stock||0);
           db.prepare('UPDATE products SET sku=?,barcode=?,name=?,category_id=?,supplier_id=?,price_cents=?,cost_cents=?,stock=?,min_stock=?,unit=?,ncm=?,cfop=?,cst_csosn=?,origin=?,sale_mode=?,linked_unit_product_id=?,default_units_per_kg=?,track_unit_stock=?,unit_stock=?,unit_min_stock=?,updated_at=? WHERE id=?')
-            .run(p.sku||null,barcode||null,productName,p.category_id||null,p.supplier_id||null,p.price_cents||0,p.cost_cents||0,stock,minStock,mode==='WEIGHT'?'kg':(p.unit||'un'),p.ncm||'',p.cfop||'',p.cst_csosn||'',p.origin||'0',mode,linkedUnitProductId,defaultUnitsPerKg,trackUnitStock,unitStock,unitMinStock,t,savedId);
+            .run(p.sku||null,barcode||null,productName,p.category_id||null,p.supplier_id||null,p.price_cents||0,p.cost_cents||0,stock,minStock,mode==='WEIGHT'?'kg':mode==='VOLUME_L'?'L':mode==='VOLUME_ML'?'ml':(p.unit||'un'),p.ncm||'',p.cfop||'',p.cst_csosn||'',p.origin||'0',mode,linkedUnitProductId,defaultUnitsPerKg,trackUnitStock,unitStock,unitMinStock,t,savedId);
           if(stockDelta!==0)db.prepare('INSERT INTO stock_movements(product_id,kind,quantity,unit_cost_cents,reason,created_at,sale_mode,supplier_id) VALUES(?,?,?,?,?,?,?,?)')
             .run(savedId,stockDelta>0?'IN':'OUT',Math.abs(stockDelta),p.cost_cents||current.cost_cents||0,'Ajuste no cadastro do produto',t,mode,p.supplier_id||current.supplier_id||null);
           if(trackUnitStock&&unitDelta!==0)db.prepare('INSERT INTO unit_stock_movements(product_id,kind,quantity,reason,sale_id,created_at) VALUES(?,?,?,?,?,?)')
             .run(savedId,unitDelta>0?'IN':'OUT',Math.abs(unitDelta),'Ajuste no cadastro do produto',null,t);
         }else{
           const r=db.prepare('INSERT INTO products(sku,barcode,name,category_id,supplier_id,price_cents,cost_cents,stock,min_stock,unit,ncm,cfop,cst_csosn,origin,sale_mode,linked_unit_product_id,default_units_per_kg,track_unit_stock,unit_stock,unit_min_stock,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-            .run(p.sku||null,barcode||null,productName,p.category_id||null,p.supplier_id||null,p.price_cents||0,p.cost_cents||0,stock,minStock,mode==='WEIGHT'?'kg':(p.unit||'un'),p.ncm||'',p.cfop||'',p.cst_csosn||'',p.origin||'0',mode,linkedUnitProductId,defaultUnitsPerKg,trackUnitStock,unitStock,unitMinStock,t,t);
+            .run(p.sku||null,barcode||null,productName,p.category_id||null,p.supplier_id||null,p.price_cents||0,p.cost_cents||0,stock,minStock,mode==='WEIGHT'?'kg':mode==='VOLUME_L'?'L':mode==='VOLUME_ML'?'ml':(p.unit||'un'),p.ncm||'',p.cfop||'',p.cst_csosn||'',p.origin||'0',mode,linkedUnitProductId,defaultUnitsPerKg,trackUnitStock,unitStock,unitMinStock,t,t);
           savedId=Number(r.lastInsertRowid);
           stockDelta=stock;
           unitDelta=unitStock;
@@ -956,11 +1053,11 @@ ipcMain.handle('quotes:set-status',(_,id,status)=>{
         }
         db.prepare('UPDATE products SET item_type=?,duration_minutes=? WHERE id=?').run(isService?'SERVICE':'PRODUCT',isService?Math.max(5,Math.min(1440,Number(p.duration_minutes||60))):60,savedId);
       })();
-      activity(actor,p?.id?'Editou produto':'Cadastrou produto','product',savedId,`${productName} · preço ${pdfMoney(p.price_cents||0)} · estoque ${mode==='WEIGHT'?gramsLabel(stock):`${stock} ${p.unit||'un'}`}`,Number(p.price_cents||0),'products');
+      activity(actor,p?.id?'Editou produto':'Cadastrou produto','product',savedId,`${productName} · preço ${pdfMoney(p.price_cents||0)} · estoque ${mode==='WEIGHT'?gramsLabel(stock):['VOLUME_L','VOLUME_ML'].includes(mode)?`${(stock/1000).toFixed(3)} L`: `${stock} ${p.unit||'un'}`}`,Number(p.price_cents||0),'products');
       if(stockDelta!==0){
-        const qtyText=mode==='WEIGHT'?gramsLabel(Math.abs(stockDelta)):`${Math.abs(stockDelta)} ${p.unit||'un'}`;
+        const qtyText=mode==='WEIGHT'?gramsLabel(Math.abs(stockDelta)):['VOLUME_L','VOLUME_ML'].includes(mode)?`${(Math.abs(stockDelta)/1000).toFixed(3)} L`:`${Math.abs(stockDelta)} ${p.unit||'un'}`;
         const cost=Number(p.cost_cents||current?.cost_cents||0);
-        const amount=mode==='WEIGHT'?Math.round(cost*Math.abs(stockDelta)/1000):Math.round(cost*Math.abs(stockDelta));
+        const amount=mode==='WEIGHT'||mode==='VOLUME_L'?Math.round(cost*Math.abs(stockDelta)/1000):Math.round(cost*Math.abs(stockDelta));
         activity(actor,stockDelta>0?'Entrada de estoque por cadastro':'Saída de estoque por cadastro','stock',savedId,`${productName} · ${qtyText} · ${p?.id?'ajuste de cadastro':'estoque inicial'}`,amount,'stock');
       }
       return ok(savedId);
@@ -997,7 +1094,7 @@ ipcMain.handle('quotes:set-status',(_,id,status)=>{
       COALESCE(p.sale_mode,'UNIT') sale_mode,COALESCE(p.track_unit_stock,0) track_unit_stock,
       COALESCE(p.unit_stock,0) unit_stock,COALESCE(p.unit_min_stock,0) unit_min_stock,
       c.name category,s.name supplier_name,
-      COALESCE((SELECT SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN COALESCE(si.weight_grams,0) ELSE si.quantity END) FROM sale_items si JOIN sales sa ON sa.id=si.sale_id WHERE si.product_id=p.id AND sa.sold_at>=datetime('now','-90 days') AND COALESCE(sa.status,'CONCLUIDA')<>'CANCELADA'),0) sold_qty_90d,
+      COALESCE((SELECT SUM(CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN COALESCE(si.weight_grams,0) WHEN COALESCE(si.sale_mode,'UNIT') IN ('VOLUME_L','VOLUME_ML','MIX_VOLUME_L','MIX_VOLUME_ML') THEN COALESCE(si.volume_ml,0) ELSE si.quantity END) FROM sale_items si JOIN sales sa ON sa.id=si.sale_id WHERE si.product_id=p.id AND sa.sold_at>=datetime('now','-90 days') AND COALESCE(sa.status,'CONCLUIDA')<>'CANCELADA'),0) sold_qty_90d,
       (SELECT MAX(sa.sold_at) FROM sale_items si JOIN sales sa ON sa.id=si.sale_id WHERE si.product_id=p.id AND COALESCE(sa.status,'CONCLUIDA')<>'CANCELADA') last_sold_at
       FROM products p LEFT JOIN categories c ON c.id=p.category_id LEFT JOIN suppliers s ON s.id=p.supplier_id WHERE p.active=1 ORDER BY p.name`).all();
     return ok(rows.map(p=>{
@@ -1008,7 +1105,7 @@ ipcMain.handle('quotes:set-status',(_,id,status)=>{
       return {...p,low_stock:low?1:0,out_of_stock:stock<=0?1:0,suggested_reorder:Math.max(0,target-stock),
         estimated_days_left:daily>0?Math.floor(stock/daily):null, no_turnover_90d:sold===0?1:0,
         excess_stock:daily>0&&stock>Math.max(min,Math.ceil(daily*60))?1:(sold===0&&stock>min?1:0),
-        stock_value_cents:weighted?Math.round(Number(p.cost_cents||0)*stock/1000):Math.round(Number(p.cost_cents||0)*stock)};
+        stock_value_cents:weighted||p.sale_mode==='VOLUME_L'?Math.round(Number(p.cost_cents||0)*stock/1000):Math.round(Number(p.cost_cents||0)*stock)};
     }));
   });
   ipcMain.handle('stock:move',(_,m)=>{
@@ -1016,7 +1113,7 @@ ipcMain.handle('quotes:set-status',(_,id,status)=>{
     if(!p)fail('Produto não encontrado','NOT_FOUND');
     if(p.item_type==='SERVICE')fail('Serviços não possuem movimentação de estoque.','SERVICE_STOCK');
     const qty=Math.round(Number(m.quantity));
-    if(!Number.isInteger(qty)||qty<=0)fail(p.sale_mode==='WEIGHT'?'Informe um peso maior que zero.':'Quantidade inválida','VALIDATION');
+    if(!Number.isInteger(qty)||qty<=0)fail(p.sale_mode==='WEIGHT'?'Informe um peso maior que zero.':['VOLUME_L','VOLUME_ML'].includes(p.sale_mode)?'Informe um volume maior que zero.':'Quantidade inválida','VALIDATION');
     const unitQty=Math.max(0,Math.round(Number(m.unit_quantity||0)));
     const supplierId=m.kind==='IN'&&Number(m.supplier_id)>0?Number(m.supplier_id):null;
     if(supplierId&&!db.prepare('SELECT id FROM suppliers WHERE id=?').get(supplierId))fail('Fornecedor não encontrado.','SUPPLIER_NOT_FOUND');
@@ -1030,14 +1127,14 @@ ipcMain.handle('quotes:set-status',(_,id,status)=>{
       db.prepare('INSERT INTO stock_movements(product_id,kind,quantity,unit_cost_cents,reason,created_at,sale_mode,supplier_id) VALUES(?,?,?,?,?,?,?,?)').run(m.product_id,kind,qty,unitCost,m.reason||'',movementTime,p.sale_mode,supplierId);
       if(p.track_unit_stock&&unitQty>0)db.prepare('INSERT INTO unit_stock_movements(product_id,kind,quantity,reason,sale_id,created_at) VALUES(?,?,?,?,?,?)').run(m.product_id,kind,unitQty,m.reason||'',null,movementTime);
     })();
-    const qtyText=p.sale_mode==='WEIGHT'?gramsLabel(qty):`${qty} ${p.unit||'un'}`;
-    const totalValue=p.sale_mode==='WEIGHT'?Math.round(unitCost*qty/1000):Math.round(unitCost*qty);
+    const qtyText=p.sale_mode==='WEIGHT'?gramsLabel(qty):['VOLUME_L','VOLUME_ML'].includes(p.sale_mode)?`${(qty/1000).toFixed(3)} L`:`${qty} ${p.unit||'un'}`;
+    const totalValue=p.sale_mode==='WEIGHT'||p.sale_mode==='VOLUME_L'?Math.round(unitCost*qty/1000):Math.round(unitCost*qty);
     const reason=String(m.reason||'').trim();
     activity(currentOperator()?.name||'Sistema',kind==='IN'?'Entrada de estoque':'Saída de estoque','stock',Number(m.product_id),`${p.name} · ${qtyText}${reason?` · Motivo: ${reason}`:''}${totalValue>0?` · Valor de referência ${pdfMoney(totalValue)}`:''}`,totalValue,'stock');
     return ok(true);
   });
-  ipcMain.handle('kits:list',(_,categoryId=null)=>{let sql=`SELECT k.*,wp.name weight_product_name,mc.name mix_category_name,GROUP_CONCAT(ki.product_id||':'||ki.quantity) items FROM kits k LEFT JOIN kit_items ki ON ki.kit_id=k.id LEFT JOIN products wp ON wp.id=k.weight_product_id LEFT JOIN categories mc ON mc.id=k.mix_category_id WHERE k.active=1`;const args=[];if(categoryId){sql+=' AND k.category_id=?';args.push(categoryId)}return ok(db.prepare(sql+' GROUP BY k.id ORDER BY k.name').all(...args))});
-  ipcMain.handle('kits:save',(_,k)=>{let id=k.id;return ok(db.transaction(()=>{const type=String(k.kit_type||'STANDARD')==='MIX_WEIGHT'?'MIX_WEIGHT':'STANDARD';const price=Math.max(0,Math.round(Number(k.price_cents||0)));if(!String(k.name||'').trim())fail('Informe o nome do combo.','VALIDATION');let weightProductId=null,mixCategoryId=null;if(type==='MIX_WEIGHT'){if(price<=0)fail('Informe o preço por kg do Mix por Peso.','VALIDATION');weightProductId=k.weight_product_id?Number(k.weight_product_id):null;mixCategoryId=k.mix_category_id?Number(k.mix_category_id):null;if(weightProductId){const wp=db.prepare("SELECT id,name,active,COALESCE(sale_mode,'UNIT') sale_mode FROM products WHERE id=?").get(weightProductId);if(!wp||!wp.active)fail('Produto-base de peso não encontrado.','NOT_FOUND');if(wp.sale_mode!=='WEIGHT')fail(`O produto-base "${wp.name}" precisa ser vendido por peso.`,'MIX_WEIGHT_BASE_MODE');}if(mixCategoryId){const mc=db.prepare('SELECT id,name,active FROM categories WHERE id=?').get(mixCategoryId);if(!mc||!mc.active)fail('Categoria de produtos do Mix não encontrada.','NOT_FOUND');}}else{for(const it of k.items||[]){const p=db.prepare("SELECT name,COALESCE(sale_mode,'UNIT') sale_mode FROM products WHERE id=? AND active=1").get(it.product_id);if(!p)fail('Produto de Kit/Combo não encontrado.','NOT_FOUND');if(p.sale_mode==='WEIGHT')fail(`O produto ${p.name} é vendido por peso e não pode ser usado em Kit/Combo normal.`, 'WEIGHT_IN_KIT');}}if(id)db.prepare('UPDATE kits SET name=?,sku=?,price_cents=?,category_id=?,kit_type=?,weight_product_id=?,mix_category_id=? WHERE id=?').run(k.name,k.sku||null,price,k.category_id||null,type,weightProductId,mixCategoryId,id);else id=db.prepare('INSERT INTO kits(name,sku,price_cents,category_id,kit_type,weight_product_id,mix_category_id,created_at) VALUES(?,?,?,?,?,?,?,?)').run(k.name,k.sku||null,price,k.category_id||null,type,weightProductId,mixCategoryId,now()).lastInsertRowid;db.prepare('DELETE FROM kit_items WHERE kit_id=?').run(id);if(type==='STANDARD')for(const it of k.items||[])db.prepare('INSERT INTO kit_items VALUES(?,?,?)').run(id,it.product_id,it.quantity);return Number(id);})())});
+  ipcMain.handle('kits:list',(_,categoryId=null)=>{let sql=`SELECT k.*,wp.name weight_product_name,vp.name volume_product_name,mc.name mix_category_name,GROUP_CONCAT(ki.product_id||':'||ki.quantity||':'||COALESCE(ki.volume_ml,0)) items FROM kits k LEFT JOIN kit_items ki ON ki.kit_id=k.id LEFT JOIN products wp ON wp.id=k.weight_product_id LEFT JOIN products vp ON vp.id=k.volume_product_id LEFT JOIN categories mc ON mc.id=k.mix_category_id WHERE k.active=1`;const args=[];if(categoryId){sql+=' AND k.category_id=?';args.push(categoryId)}return ok(db.prepare(sql+' GROUP BY k.id ORDER BY k.name').all(...args))});
+  ipcMain.handle('kits:save',(_,k)=>{let id=k.id;return ok(db.transaction(()=>{const requested=String(k.kit_type||'STANDARD');const type=['MIX_WEIGHT','MIX_VOLUME_L','MIX_VOLUME_ML'].includes(requested)?requested:'STANDARD';const price=Math.max(0,Math.round(Number(k.price_cents||0)));if(!String(k.name||'').trim())fail('Informe o nome do combo.','VALIDATION');let weightProductId=null,volumeProductId=null,mixCategoryId=null;if(type!=='STANDARD'){if(price<=0)fail(type==='MIX_WEIGHT'?'Informe o preço por kg do Mix por Peso.':type==='MIX_VOLUME_L'?'Informe o preço por litro do Mix.':'Informe o preço por mililitro do Mix.','VALIDATION');weightProductId=type==='MIX_WEIGHT'&&k.weight_product_id?Number(k.weight_product_id):null;volumeProductId=type!=='MIX_WEIGHT'&&k.volume_product_id?Number(k.volume_product_id):null;mixCategoryId=k.mix_category_id?Number(k.mix_category_id):null;if(weightProductId){const wp=db.prepare("SELECT id,name,active,COALESCE(sale_mode,'UNIT') sale_mode FROM products WHERE id=?").get(weightProductId);if(!wp||!wp.active)fail('Produto-base de peso não encontrado.','NOT_FOUND');if(wp.sale_mode!=='WEIGHT')fail(`O produto-base "${wp.name}" precisa ser vendido por peso.`,'MIX_WEIGHT_BASE_MODE');}if(volumeProductId){const vp=db.prepare("SELECT id,name,active,COALESCE(sale_mode,'UNIT') sale_mode FROM products WHERE id=?").get(volumeProductId);if(!vp||!vp.active)fail('Produto-base de volume não encontrado.','NOT_FOUND');if(!['VOLUME_L','VOLUME_ML'].includes(vp.sale_mode))fail(`O produto-base "${vp.name}" precisa ter controle de volume.`,'MIX_VOLUME_BASE_MODE');}if(mixCategoryId){const mc=db.prepare('SELECT id,name,active FROM categories WHERE id=?').get(mixCategoryId);if(!mc||!mc.active)fail('Categoria de produtos do Mix não encontrada.','NOT_FOUND');}}else{const components=Array.isArray(k.items)?k.items:[];if(!components.length)fail('Adicione pelo menos um componente ao Kit / Combo.','KIT_EMPTY');for(const it of components){const p=db.prepare("SELECT id,name,active,COALESCE(sale_mode,'UNIT') sale_mode,item_type FROM products WHERE id=?").get(Number(it.product_id));if(!p||!p.active)fail('Produto de Kit/Combo não encontrado.','NOT_FOUND');if(p.item_type==='SERVICE'||p.sale_mode==='WEIGHT')fail(`O produto ${p.name} não pode ser usado em Kit/Combo fixo; utilize produtos por unidade ou volume.`,'ITEM_MODE_IN_KIT');if(p.sale_mode==='UNIT'&&Math.max(0,Math.round(Number(it.quantity||0)))<=0)fail(`Informe a quantidade unitária de ${p.name}.`,'KIT_COMPONENT_QUANTITY');if(['VOLUME_L','VOLUME_ML'].includes(p.sale_mode)&&Math.max(0,Math.round(Number(it.volume_ml||0)))<=0)fail(`Informe o volume em ml de ${p.name}.`,'KIT_COMPONENT_VOLUME');}}if(id)db.prepare('UPDATE kits SET name=?,sku=?,price_cents=?,category_id=?,kit_type=?,weight_product_id=?,volume_product_id=?,mix_category_id=? WHERE id=?').run(k.name,k.sku||null,price,k.category_id||null,type,weightProductId,volumeProductId,mixCategoryId,id);else id=db.prepare('INSERT INTO kits(name,sku,price_cents,category_id,kit_type,weight_product_id,volume_product_id,mix_category_id,created_at) VALUES(?,?,?,?,?,?,?,?,?)').run(k.name,k.sku||null,price,k.category_id||null,type,weightProductId,volumeProductId,mixCategoryId,now()).lastInsertRowid;db.prepare('DELETE FROM kit_items WHERE kit_id=?').run(id);if(type==='STANDARD')for(const it of k.items||[]){const p=db.prepare("SELECT COALESCE(sale_mode,'UNIT') sale_mode FROM products WHERE id=?").get(Number(it.product_id));db.prepare('INSERT INTO kit_items(kit_id,product_id,quantity,volume_ml) VALUES(?,?,?,?)').run(id,it.product_id,p?.sale_mode==='UNIT'?Math.max(0,Math.round(Number(it.quantity||0))):0,['VOLUME_L','VOLUME_ML'].includes(p?.sale_mode)?Math.max(0,Math.round(Number(it.volume_ml||0))):0);}return Number(id);})())});
   ipcMain.handle('kits:delete',(_,id)=>ok(db.transaction(()=>{const kitId=Number(id);if(!kitId)fail('Kit / Combo inválido.','VALIDATION');const kit=db.prepare('SELECT * FROM kits WHERE id=? AND active=1').get(kitId);if(!kit)fail('Kit / Combo não encontrado.','NOT_FOUND');const openQuote=db.prepare("SELECT q.number FROM quote_items qi JOIN quotes q ON q.id=qi.quote_id WHERE qi.kit_id=? AND q.status='ABERTO' LIMIT 1").get(kitId);if(openQuote)fail(`Este Kit / Combo está no orçamento #${openQuote.number}, que ainda está em aberto. Remova-o do orçamento antes de excluir.`, 'KIT_IN_OPEN_QUOTE');db.prepare('UPDATE kits SET active=0 WHERE id=?').run(kitId);activity('',String(kit.kit_type||'STANDARD')==='MIX_WEIGHT'?'Excluiu Mix por Peso':'Excluiu Kit / Combo','kit',kitId,kit.name||'');return true})()));
   ipcMain.handle('customers:list',()=>ok(db.prepare('SELECT c.*,COALESCE(SUM(cp.amount_cents),0) paid_cents FROM customers c LEFT JOIN customer_payments cp ON cp.customer_id=c.id GROUP BY c.id ORDER BY c.name').all()));
   ipcMain.handle('customers:save',(_,c)=>{
@@ -1053,8 +1150,8 @@ ipcMain.handle('quotes:set-status',(_,id,status)=>{
   });
   ipcMain.handle('customers:ledger',(_,id)=>ok({customer:db.prepare('SELECT * FROM customers WHERE id=?').get(id),sales:db.prepare("SELECT s.*,sp.method,sp.original_cents,sp.installments,sp.fee_percent,sp.fee_cents,sp.final_cents FROM sales s LEFT JOIN sale_payments sp ON sp.sale_id=s.id WHERE s.customer_id=? ORDER BY s.sold_at DESC").all(id),payments:db.prepare('SELECT * FROM customer_payments WHERE customer_id=? ORDER BY created_at DESC').all(id)}));
   ipcMain.handle('customers:payment',(_,p)=>{if(!p.customer_id||p.amount_cents<=0)fail('Pagamento inválido','VALIDATION');db.transaction(()=>{db.prepare('INSERT INTO customer_payments(customer_id,amount_cents,method,note,created_at) VALUES(?,?,?,?,?)').run(p.customer_id,p.amount_cents,p.method||'Dinheiro',p.note||'',now());db.prepare('UPDATE customers SET balance_cents=MAX(0,balance_cents-?),updated_at=? WHERE id=?').run(p.amount_cents,now(),p.customer_id)})();return ok(true)});
-  ipcMain.handle('sales:list',(_,date)=>ok(db.prepare("SELECT s.*,GROUP_CONCAT(DISTINCT (si.name||CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN ' '||printf('%.3f',COALESCE(si.weight_grams,0)/1000.0)||' kg'||CASE WHEN COALESCE(si.unit_count,0)>0 THEN ' · '||si.unit_count||' un.' ELSE '' END||CASE WHEN COALESCE(si.sale_mode,'UNIT')='MIX_WEIGHT' THEN COALESCE(' ['||(SELECT GROUP_CONCAT(smi.quantity||' '||smi.product_name||' · '||printf('%.3f',COALESCE(smi.weight_grams,0)/1000.0)||' kg','; ') FROM sale_mix_items smi WHERE smi.sale_item_id=si.id)||']','') ELSE '' END ELSE ' x'||si.quantity END)) items,fd.id fiscal_id,fd.number fiscal_number,fd.series fiscal_series,fd.status fiscal_status,GROUP_CONCAT(DISTINCT (sp.condition_text||' · taxa '||printf('%.2f',sp.fee_percent)||'% · final '||printf('R$ %.2f',sp.final_cents/100.0))) payment_details FROM sales s LEFT JOIN sale_items si ON si.sale_id=s.id LEFT JOIN fiscal_documents fd ON fd.sale_id=s.id LEFT JOIN sale_payments sp ON sp.sale_id=s.id WHERE substr(s.sold_at,1,10)=? GROUP BY s.id ORDER BY s.sold_at DESC").all(date)));
-  ipcMain.handle('sales:detail',(_,id)=>{const items=db.prepare('SELECT * FROM sale_items WHERE sale_id=?').all(id).map(i=>({...i,mix_items:String(i.sale_mode||'UNIT')==='MIX_WEIGHT'?db.prepare('SELECT product_id,product_name name,quantity,weight_grams FROM sale_mix_items WHERE sale_item_id=? ORDER BY id').all(i.id):[]}));return ok({sale:db.prepare('SELECT * FROM sales WHERE id=?').get(id),items,payments:db.prepare('SELECT * FROM sale_payments WHERE sale_id=?').all(id)})});
+  ipcMain.handle('sales:list',(_,date)=>ok(db.prepare("SELECT s.*,GROUP_CONCAT(DISTINCT (si.name||CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN ' '||printf('%.3f',COALESCE(si.weight_grams,0)/1000.0)||' kg'||CASE WHEN COALESCE(si.unit_count,0)>0 THEN ' · '||si.unit_count||' un.' ELSE '' END||CASE WHEN COALESCE(si.sale_mode,'UNIT')='MIX_WEIGHT' THEN COALESCE(' ['||(SELECT GROUP_CONCAT(smi.quantity||' '||smi.product_name||' · '||printf('%.3f',COALESCE(smi.weight_grams,0)/1000.0)||' kg','; ') FROM sale_mix_items smi WHERE smi.sale_item_id=si.id)||']','') ELSE '' END WHEN COALESCE(si.sale_mode,'UNIT') IN ('VOLUME_L','VOLUME_ML','MIX_VOLUME_L','MIX_VOLUME_ML') THEN ' '||printf('%.3f',COALESCE(si.volume_ml,0)/1000.0)||' L' ELSE ' x'||si.quantity END)) items,fd.id fiscal_id,fd.number fiscal_number,fd.series fiscal_series,fd.status fiscal_status,GROUP_CONCAT(DISTINCT (sp.condition_text||' · taxa '||printf('%.2f',sp.fee_percent)||'% · final '||printf('R$ %.2f',sp.final_cents/100.0))) payment_details FROM sales s LEFT JOIN sale_items si ON si.sale_id=s.id LEFT JOIN fiscal_documents fd ON fd.sale_id=s.id LEFT JOIN sale_payments sp ON sp.sale_id=s.id WHERE substr(s.sold_at,1,10)=? GROUP BY s.id ORDER BY s.sold_at DESC").all(date)));
+  ipcMain.handle('sales:detail',(_,id)=>{const items=db.prepare('SELECT * FROM sale_items WHERE sale_id=?').all(id).map(i=>({...i,mix_items:['MIX_WEIGHT','MIX_VOLUME_L','MIX_VOLUME_ML'].includes(String(i.sale_mode||'UNIT'))?db.prepare('SELECT product_id,product_name name,quantity,weight_grams,volume_ml FROM sale_mix_items WHERE sale_item_id=? ORDER BY id').all(i.id):[]}));return ok({sale:db.prepare('SELECT * FROM sales WHERE id=?').get(id),items,payments:db.prepare('SELECT * FROM sale_payments WHERE sale_id=?').all(id)})});
   ipcMain.handle('sales:cancel',(_,input={})=>ok(db.transaction(()=>{const id=Number(input.id);const reason=String(input.reason||'').trim();const operator=String(input.operator||'Administrador').trim()||'Administrador';if(!id)fail('Venda inválida.','VALIDATION');if(reason.length<5)fail('Informe o motivo do cancelamento com pelo menos 5 caracteres.','VALIDATION');const sale=db.prepare('SELECT * FROM sales WHERE id=?').get(id);if(!sale)fail('Venda não encontrada.','NOT_FOUND');if(String(sale.status||'CONCLUIDA')==='CANCELADA')fail('Esta venda já foi cancelada.','SALE_CANCELED');const fiscal=db.prepare('SELECT * FROM fiscal_documents WHERE sale_id=? ORDER BY id DESC LIMIT 1').get(id);const fiscalStatus=String(fiscal?.status||'');if(fiscal&&fiscalStatus!=='CANCELADA'&&!/^REJEITADA_/.test(fiscalStatus))fail('Esta venda possui NFC-e que ainda exige regularização fiscal. Cancele/regularize primeiro o documento no menu Fiscal.','FISCAL_REQUIRED');if(Number(sale.due_cents||0)>0&&sale.customer_id){const c=db.prepare('SELECT balance_cents FROM customers WHERE id=?').get(sale.customer_id);const laterPayment=db.prepare('SELECT id FROM customer_payments WHERE customer_id=? AND created_at>=? LIMIT 1').get(sale.customer_id,sale.sold_at);if(laterPayment)fail('Há recebimento registrado para este cliente após esta venda. Como o histórico antigo não vincula cada recebimento a uma dívida específica, o cancelamento automático foi bloqueado para proteger o saldo do cliente.','DEBT_PAYMENT_AMBIGUOUS');if(Number(c?.balance_cents||0)<Number(sale.due_cents||0))fail('O débito desta venda já foi total ou parcialmente recebido. Regularize os recebimentos do cliente antes de cancelar a venda.','DEBT_ALREADY_PAID')}const moves=db.prepare("SELECT product_id,quantity,COALESCE(sale_mode,'UNIT') sale_mode FROM stock_movements WHERE kind='OUT' AND reason=?").all('Venda #'+id);const unitMoves=db.prepare("SELECT product_id,quantity FROM unit_stock_movements WHERE kind='OUT' AND sale_id=?").all(id);const saleItemCount=Number(db.prepare('SELECT COUNT(*) n FROM sale_items WHERE sale_id=?').get(id)?.n||0);if(saleItemCount>0&&!moves.length)fail('Esta venda não possui histórico de movimentação de estoque suficiente para um cancelamento automático seguro.','STOCK_HISTORY');for(const m of moves){const pp=db.prepare("SELECT name,unit FROM products WHERE id=?").get(m.product_id),movementTime=now();db.prepare('UPDATE products SET stock=stock+?,updated_at=? WHERE id=?').run(Number(m.quantity||0),movementTime,m.product_id);db.prepare('INSERT INTO stock_movements(product_id,kind,quantity,reason,created_at,sale_mode) VALUES(?,?,?,?,?,?)').run(m.product_id,'IN',m.quantity,'Cancelamento da venda #'+id,movementTime,m.sale_mode||'UNIT');const qtyText=String(m.sale_mode||'UNIT')==='WEIGHT'?gramsLabel(m.quantity):`${Number(m.quantity||0)} ${pp?.unit||'un'}`;activity(operator,'Entrada de estoque por cancelamento','stock',m.product_id,`${pp?.name||'Produto'} · ${qtyText} · Cancelamento da venda #${id}`,0,'stock')}for(const m of unitMoves){const pp=db.prepare('SELECT name FROM products WHERE id=?').get(m.product_id),movementTime=now();db.prepare('UPDATE products SET unit_stock=unit_stock+?,updated_at=? WHERE id=?').run(Number(m.quantity||0),movementTime,m.product_id);db.prepare('INSERT INTO unit_stock_movements(product_id,kind,quantity,reason,sale_id,created_at) VALUES(?,?,?,?,?,?)').run(m.product_id,'IN',m.quantity,'Cancelamento da venda #'+id,id,movementTime);activity(operator,'Entrada de estoque unitário por cancelamento','stock',m.product_id,`${pp?.name||'Produto'} · ${Number(m.quantity||0)} un. · Cancelamento da venda #${id}`,0,'stock')}if(Number(sale.due_cents||0)>0&&sale.customer_id)db.prepare('UPDATE customers SET balance_cents=MAX(0,balance_cents-?),updated_at=? WHERE id=?').run(Number(sale.due_cents||0),now(),sale.customer_id);db.prepare("UPDATE appointments SET status='CANCELADO',completed_at=? WHERE sale_id=? AND status='PENDENTE'").run(now(),id);if(sale.quote_id)db.prepare("UPDATE quotes SET status='ABERTO' WHERE id=? AND status='CONVERTIDO'").run(sale.quote_id);db.prepare("UPDATE sales SET status='CANCELADA',canceled_at=?,canceled_reason=?,canceled_by=? WHERE id=?").run(now(),reason,operator,id);activity(operator,'Cancelou venda','sale',id,`${reason} · Total ${pdfMoney(sale.total_cents)}`,Number(sale.total_cents||0),'sales');return {id,restored_items:moves.length+unitMoves.length};})()));
   ipcMain.handle('agenda:reconcile',()=>{const d=new Date(),pad=n=>String(n).padStart(2,'0'),today=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;const pending=db.prepare("SELECT id,scheduled_at FROM appointments WHERE type='SERVICO' AND status='PENDENTE'").all();const expired=pending.filter(a=>String(a.scheduled_at||'').slice(0,10)<today);if(expired.length){const q=db.prepare("UPDATE appointments SET attendance='NAO_COMPARECEU',status='CONCLUIDO',completed_at=? WHERE id=?");db.transaction(()=>expired.forEach(a=>q.run(now(),a.id)))()}return ok({auto_absent:expired.length})});
   ipcMain.handle('agenda:list',(_,opts={})=>{const type=String(opts.type||'');let customerRows=type&&type!=='INTERNO'?db.prepare("SELECT a.*,c.balance_cents,'customer' agenda_source FROM appointments a LEFT JOIN customers c ON c.id=a.customer_id WHERE a.type=? ORDER BY CASE WHEN a.status='PENDENTE' THEN 0 ELSE 1 END,a.scheduled_at").all(type):type==='INTERNO'?[]:db.prepare("SELECT a.*,c.balance_cents,'customer' agenda_source FROM appointments a LEFT JOIN customers c ON c.id=a.customer_id ORDER BY CASE WHEN a.status='PENDENTE' THEN 0 ELSE 1 END,a.scheduled_at").all();let internalRows=type&&type!=='INTERNO'?[]:db.prepare("SELECT id,'INTERNO' type,NULL customer_id,'Loja' customer_name,title,scheduled_at,alert_at,0 amount_cents,status,'' attendance,NULL sale_id,notes,alerted,completed_at,0 paid_cents,created_at,task_kind,'' delivery_method,'' delivery_address,'' delivery_phone,'internal' agenda_source FROM internal_appointments ORDER BY CASE WHEN status='PENDENTE' THEN 0 ELSE 1 END,scheduled_at").all();return ok([...customerRows,...internalRows].sort((a,b)=>{const ap=a.status==='PENDENTE'?0:1,bp=b.status==='PENDENTE'?0:1;return ap-bp||String(a.scheduled_at).localeCompare(String(b.scheduled_at))}))});
@@ -1067,7 +1164,7 @@ ipcMain.handle('quotes:set-status',(_,id,status)=>{
   ipcMain.handle('agenda:complete-task',(_,x)=>{const a=db.prepare("SELECT * FROM internal_appointments WHERE id=? AND status='PENDENTE'").get(Number(x.id));if(!a)fail('Tarefa interna não encontrada ou já concluída.','NOT_FOUND');db.prepare("UPDATE internal_appointments SET status='CONCLUIDO',completed_at=? WHERE id=?").run(now(),a.id);return ok(true)});
   ipcMain.handle('agenda:complete-payment',(_,x)=>db.transaction(()=>{const a=db.prepare("SELECT * FROM appointments WHERE id=? AND type='RECEBIMENTO' AND status='PENDENTE'").get(Number(x.id));if(!a)fail('Agendamento de recebimento não encontrado ou já concluído.','NOT_FOUND');const c=db.prepare('SELECT * FROM customers WHERE id=?').get(a.customer_id);if(!c)fail('Cliente não encontrado.','NOT_FOUND');const balance=Math.max(0,Number(c.balance_cents||0));const scheduled=Math.max(0,Number(a.amount_cents||0));const paid=Math.min(balance,scheduled>0?scheduled:balance);const remaining=Math.max(0,balance-paid);if(paid>0){db.prepare('INSERT INTO customer_payments(customer_id,amount_cents,method,note,created_at) VALUES(?,?,?,?,?)').run(c.id,paid,String(x.method||'Dinheiro'),'Recebimento agendado #'+a.id,now());db.prepare('UPDATE customers SET balance_cents=?,updated_at=? WHERE id=?').run(remaining,now(),c.id)}db.prepare("UPDATE appointments SET status='CONCLUIDO',completed_at=?,paid_cents=? WHERE id=?").run(now(),paid,a.id);return ok({paid_cents:paid,remaining_cents:remaining,scheduled_cents:scheduled,customer_name:c.name})})());
   ipcMain.handle('agenda:report',(_,opts={})=>{const mode=opts.mode==='monthly'?'monthly':'daily';const key=mode==='monthly'?String(opts.month||'').slice(0,7):String(opts.date||'').slice(0,10);const n=mode==='monthly'?7:10;const rows=db.prepare(`SELECT *,'customer' agenda_source FROM appointments WHERE substr(scheduled_at,1,${n})=? OR substr(completed_at,1,${n})=? ORDER BY scheduled_at DESC`).all(key,key),internal=db.prepare(`SELECT id,'INTERNO' type,NULL customer_id,'Loja' customer_name,title,scheduled_at,alert_at,0 amount_cents,status,'' attendance,NULL sale_id,notes,alerted,completed_at,0 paid_cents,created_at,task_kind,'' delivery_method,'' delivery_address,'' delivery_phone,'internal' agenda_source FROM internal_appointments WHERE substr(scheduled_at,1,${n})=? OR substr(completed_at,1,${n})=? ORDER BY scheduled_at DESC`).all(key,key);return ok([...rows,...internal].sort((a,b)=>String(b.scheduled_at).localeCompare(String(a.scheduled_at))))});
-  ipcMain.handle('sales:create',(_,sale)=>db.transaction(()=>{
+  ipcMain.handle('sales:create',(_,sale)=>{const result=db.transaction(()=>{
     const openCash=db.prepare("SELECT id FROM cash_registers WHERE closing_status='ABERTO' ORDER BY id DESC LIMIT 1").get();
     if(!openCash)fail('É necessário abrir o caixa antes de realizar uma venda. Abra o caixa no menu Caixa.','CASH_CLOSED');
     if(!Array.isArray(sale.items)||!sale.items.length)fail('O carrinho está vazio','VALIDATION');
@@ -1094,8 +1191,8 @@ if(sale.quote_id){
       if(i.kit_id){
         const kit=db.prepare('SELECT * FROM kits WHERE id=? AND active=1').get(i.kit_id);
         if(!kit)fail('Combo não encontrado','NOT_FOUND');
-        if(String(kit.kit_type||'STANDARD')==='MIX_WEIGHT'){
-          const mixItems=(Array.isArray(i.mix_items)?i.mix_items:[]).map(x=>({product_id:Number(x.product_id),quantity:Math.max(0,Math.round(Number(x.quantity||0))),weight_grams:Math.max(0,Math.round(Number(x.weight_grams||0)))})).filter(x=>x.product_id&&x.quantity>0);
+        if(['MIX_WEIGHT','MIX_VOLUME_L','MIX_VOLUME_ML'].includes(String(kit.kit_type||'STANDARD'))){
+          const mixMode=String(kit.kit_type),volumeMix=mixMode!=='MIX_WEIGHT';const mixItems=(Array.isArray(i.mix_items)?i.mix_items:[]).map(x=>({product_id:Number(x.product_id),quantity:Math.max(0,Math.round(Number(x.quantity||1))),weight_grams:Math.max(0,Math.round(Number(x.weight_grams||0))),volume_ml:Math.max(0,Math.round(Number(x.volume_ml||0)))})).filter(x=>x.product_id&&(volumeMix?x.volume_ml>0:x.quantity>0));
           if(!mixItems.length)fail(`Selecione pelo menos uma cor/produto para ${kit.name}.`,'MIX_EMPTY');
           const seen=new Set();
           for(const x of mixItems){
@@ -1103,29 +1200,31 @@ if(sale.quote_id){
             seen.add(x.product_id);
             const p=db.prepare("SELECT p.id,p.name,p.stock,p.active,p.category_id,c.parent_id,p.item_type,COALESCE(p.sale_mode,'UNIT') sale_mode FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.id=?").get(x.product_id);
             if(!p||!p.active)fail('Um produto do Mix não está disponível.','MIX_PRODUCT_NOT_FOUND');
-            if(p.sale_mode!=='UNIT'||p.item_type==='SERVICE')fail(`O produto "${p.name}" precisa ser vendido por unidade para participar do Mix.`,'MIX_PRODUCT_MODE');
+            if(volumeMix?(!['VOLUME_L','VOLUME_ML'].includes(p.sale_mode)||p.item_type==='SERVICE'):(p.sale_mode!=='UNIT'||p.item_type==='SERVICE'))fail(volumeMix?`O produto "${p.name}" precisa ter controle de volume para participar deste Mix.`:`O produto "${p.name}" precisa ser vendido por unidade para participar do Mix.`,'MIX_PRODUCT_MODE');
             if(kit.mix_category_id&&Number(p.category_id)!==Number(kit.mix_category_id)&&Number(p.parent_id)!==Number(kit.mix_category_id))fail(`O produto "${p.name}" não pertence à categoria configurada para este Mix.`,'MIX_CATEGORY');
-            if(x.weight_grams<=0)fail(`Informe o peso de ${p.name} dentro do Mix ${kit.name}.`,'MIX_WEIGHT_REQUIRED');
-            addRequirement(x.product_id,x.quantity);
+            if(volumeMix){if(x.volume_ml<=0)fail(`Informe o volume de ${p.name} dentro do Mix ${kit.name}.`,'MIX_VOLUME_REQUIRED');addRequirement(x.product_id,x.volume_ml)}else{if(x.weight_grams<=0)fail(`Informe o peso de ${p.name} dentro do Mix ${kit.name}.`,'MIX_WEIGHT_REQUIRED');addRequirement(x.product_id,x.quantity)}
           }
-          const grams=mixItems.reduce((sum,x)=>sum+x.weight_grams,0);
-          if(grams<=0)fail(`Informe os pesos das cores/produtos de ${kit.name}.`,'WEIGHT_REQUIRED');
-          if(kit.weight_product_id){
+          const grams=mixItems.reduce((sum,x)=>sum+x.weight_grams,0),volumeMl=mixItems.reduce((sum,x)=>sum+x.volume_ml,0);
+          if(volumeMix?volumeMl<=0:grams<=0)fail(volumeMix?`Informe os volumes dos produtos de ${kit.name}.`:`Informe os pesos das cores/produtos de ${kit.name}.`,volumeMix?'VOLUME_REQUIRED':'WEIGHT_REQUIRED');
+          if(volumeMix&&kit.volume_product_id&&mixItems.some(x=>x.product_id===Number(kit.volume_product_id)))fail('O estoque-base de volume não pode ser repetido como componente do mesmo Mix.','MIX_VOLUME_BASE_DUPLICATE');
+           if(!volumeMix&&kit.weight_product_id&&mixItems.some(x=>x.product_id===Number(kit.weight_product_id)))fail('O estoque-base de peso não pode ser repetido como componente do mesmo Mix.','MIX_WEIGHT_BASE_DUPLICATE');
+           if(!volumeMix&&kit.weight_product_id){
             const wp=db.prepare("SELECT id,name,active,COALESCE(sale_mode,'UNIT') sale_mode FROM products WHERE id=?").get(Number(kit.weight_product_id));
             if(!wp||!wp.active)fail(`O estoque-base de peso do Mix ${kit.name} não está disponível.`,'MIX_WEIGHT_BASE_NOT_FOUND');
             if(wp.sale_mode!=='WEIGHT')fail(`O estoque-base de peso do Mix ${kit.name} não está configurado como produto por kg.`,'MIX_WEIGHT_BASE_MODE');
             addRequirement(wp.id,grams);
           }
-          subtotal+=Math.round(Number(kit.price_cents||0)*grams/1000);
+          if(volumeMix&&kit.volume_product_id){const vp=db.prepare("SELECT id,name,active,COALESCE(sale_mode,'UNIT') sale_mode FROM products WHERE id=?").get(Number(kit.volume_product_id));if(!vp||!vp.active||!['VOLUME_L','VOLUME_ML'].includes(vp.sale_mode))fail('O estoque-base de volume deste Mix não está disponível.','MIX_VOLUME_BASE_MODE');addRequirement(vp.id,volumeMl)}
+          subtotal+=volumeMix?(mixMode==='MIX_VOLUME_L'?Math.round(Number(kit.price_cents||0)*volumeMl/1000):Math.round(Number(kit.price_cents||0)*volumeMl)):Math.round(Number(kit.price_cents||0)*grams/1000);
         }else{
           const parts=db.prepare("SELECT ki.*,COALESCE(p.sale_mode,'UNIT') sale_mode,p.name product_name FROM kit_items ki JOIN products p ON p.id=ki.product_id WHERE ki.kit_id=?").all(i.kit_id);
           if(!parts.length)fail(`O combo ${kit.name} não possui composição`,'KIT_EMPTY');
           if(parts.some(x=>x.sale_mode==='WEIGHT'))fail(`O combo ${kit.name} possui produto vendido por peso e precisa ser ajustado antes da venda.`,'WEIGHT_IN_KIT');
-          for(const x of parts)addRequirement(x.product_id,x.quantity*i.quantity);
+          for(const x of parts){if(['VOLUME_L','VOLUME_ML'].includes(x.sale_mode)){const ml=Math.max(0,Math.round(Number(x.volume_ml||0)))*i.quantity;if(ml<=0)fail(`O volume de ${x.product_name} no combo ${kit.name} está inválido.`,'KIT_COMPONENT_VOLUME');addRequirement(x.product_id,ml);}else addRequirement(x.product_id,x.quantity*i.quantity);}
           subtotal+=kit.price_cents*i.quantity;
         }
       }else{
-        const p=db.prepare("SELECT stock,name,COALESCE(sale_mode,'UNIT') sale_mode,price_cents,linked_unit_product_id,COALESCE(track_unit_stock,0) track_unit_stock,COALESCE(unit_stock,0) unit_stock FROM products WHERE id=? AND active=1").get(i.product_id);
+        const p=db.prepare("SELECT stock,name,unit,COALESCE(sale_mode,'UNIT') sale_mode,price_cents,linked_unit_product_id,COALESCE(track_unit_stock,0) track_unit_stock,COALESCE(unit_stock,0) unit_stock FROM products WHERE id=? AND active=1").get(i.product_id);
         if(!p)fail('Produto não encontrado','NOT_FOUND');
         if(p.sale_mode==='WEIGHT'){
           const grams=Math.round(Number(i.weight_grams||0));
@@ -1143,6 +1242,8 @@ if(sale.quote_id){
             }
           }
           subtotal+=Math.round(Number(i.unit_price_cents||p.price_cents||0)*grams/1000);
+        }else if(['VOLUME_L','VOLUME_ML'].includes(p.sale_mode)){
+          const ml=Math.max(0,Math.round(Number(i.volume_ml||0)));if(ml<=0)fail(`Informe o volume de ${p.name}.`,'VOLUME_REQUIRED');addRequirement(i.product_id,ml);subtotal+=p.sale_mode==='VOLUME_L'?Math.round(Number(i.unit_price_cents||p.price_cents||0)*ml/1000):Math.round(Number(i.unit_price_cents||p.price_cents||0)*ml);
         }else{
           const qty=Math.max(1,Math.round(Number(i.quantity||1)));
           addRequirement(i.product_id,qty);
@@ -1151,7 +1252,7 @@ if(sale.quote_id){
       }
     }
     // Conferência integral antes de alterar qualquer estoque.
-    for(const [pid,qty] of requirements){const p=db.prepare("SELECT stock,name,COALESCE(sale_mode,'UNIT') sale_mode FROM products WHERE id=?").get(pid);if(!p||p.stock<qty)fail(`Estoque insuficiente para ${p?.name||'produto'}. Necessário: ${p?.sale_mode==='WEIGHT'?gramsLabel(qty):qty}, disponível: ${p?.sale_mode==='WEIGHT'?gramsLabel(p.stock):p?.stock||0}`,'STOCK')}
+    for(const [pid,qty] of requirements){const p=db.prepare("SELECT stock,name,COALESCE(sale_mode,'UNIT') sale_mode FROM products WHERE id=?").get(pid);if(!p||p.stock<qty)fail(`Estoque insuficiente para ${p?.name||'produto'}. Necessário: ${p?.sale_mode==='WEIGHT'?gramsLabel(qty):['VOLUME_L','VOLUME_ML'].includes(p?.sale_mode)?(qty/1000).toFixed(3)+' L':qty}, disponível: ${p?.sale_mode==='WEIGHT'?gramsLabel(p.stock):['VOLUME_L','VOLUME_ML'].includes(p?.sale_mode)?(Number(p.stock||0)/1000).toFixed(3)+' L':p?.stock||0}`,'STOCK')}
     for(const [pid,qty] of unitRequirements){const p=db.prepare("SELECT name,COALESCE(unit_stock,0) unit_stock FROM products WHERE id=?").get(pid);if(!p||Number(p.unit_stock||0)<qty)fail(`Estoque unitário insuficiente para ${p?.name||'produto'}. Necessário: ${qty} un., disponível: ${Number(p?.unit_stock||0)} un.`,'UNIT_STOCK')}
     // Garante compatibilidade com bancos antigos antes de inserir a venda.
     if(!columnNames('sales').includes('customer_name')) addColumn('sales','customer_name',"TEXT DEFAULT ''");
@@ -1198,34 +1299,36 @@ if(sale.quote_id){
 ).lastInsertRowid;
     const mixSaleIns=db.prepare('INSERT INTO sale_mix_items(sale_item_id,product_id,product_name,quantity,weight_grams) VALUES(?,?,?,?,?)');
     for(const i of sale.items){
-      let mode='UNIT',qty=Math.max(1,Math.round(Number(i.quantity||1))),grams=0,unitCount=0,linkedUnitProductId=null,unitPrice=Number(i.unit_price_cents||0),itemTotal=unitPrice*qty,mixItems=[];
+      let mode='UNIT',qty=Math.max(1,Math.round(Number(i.quantity||1))),grams=0,volumeMl=0,unitCount=0,linkedUnitProductId=null,unitPrice=Number(i.unit_price_cents||0),itemTotal=unitPrice*qty,mixItems=[],costTotal=null;
       if(i.kit_id){
         const kit=db.prepare('SELECT * FROM kits WHERE id=?').get(Number(i.kit_id));
-        if(String(kit?.kit_type||'STANDARD')==='MIX_WEIGHT'){
-          mode='MIX_WEIGHT';
+        if(['MIX_WEIGHT','MIX_VOLUME_L','MIX_VOLUME_ML'].includes(String(kit?.kit_type||'STANDARD'))){
+          mode=String(kit.kit_type);
           grams=Math.round(Number(i.weight_grams||0));
-          mixItems=(Array.isArray(i.mix_items)?i.mix_items:[]).map(x=>({product_id:Number(x.product_id),quantity:Math.max(0,Math.round(Number(x.quantity||0))),weight_grams:Math.max(0,Math.round(Number(x.weight_grams||0)))})).filter(x=>x.product_id&&x.quantity>0);
-          grams=mixItems.reduce((sum,x)=>sum+x.weight_grams,0);
-          unitCount=mixItems.reduce((sum,x)=>sum+x.quantity,0);
-          qty=1;
-          unitPrice=Number(kit?.price_cents||unitPrice);
-          itemTotal=Math.round(unitPrice*grams/1000);
+          mixItems=(Array.isArray(i.mix_items)?i.mix_items:[]).map(x=>({product_id:Number(x.product_id),quantity:Math.max(0,Math.round(Number(x.quantity||1))),weight_grams:Math.max(0,Math.round(Number(x.weight_grams||0))),volume_ml:Math.max(0,Math.round(Number(x.volume_ml||0)))})).filter(x=>x.product_id&&(mode==='MIX_WEIGHT'?x.quantity>0:x.volume_ml>0));
+          grams=mixItems.reduce((sum,x)=>sum+x.weight_grams,0);volumeMl=mixItems.reduce((sum,x)=>sum+x.volume_ml,0);
+          unitCount=mixItems.reduce((sum,x)=>sum+x.quantity,0);qty=1;unitPrice=Number(kit?.price_cents||unitPrice);let mixCost=0,mixKnown=mixItems.length>0;for(const x of mixItems){const cp=db.prepare("SELECT cost_cents,COALESCE(sale_mode,'UNIT') sale_mode FROM products WHERE id=?").get(x.product_id);const c=Number(cp?.cost_cents||0);if(!cp||c<=0){mixKnown=false;break;}mixCost+=cp.sale_mode==='WEIGHT'?Math.round(c*x.weight_grams/1000):cp.sale_mode==='VOLUME_L'?Math.round(c*x.volume_ml/1000):cp.sale_mode==='VOLUME_ML'?Math.round(c*x.volume_ml):c*x.quantity;}costTotal=mixKnown?mixCost:null;
+          itemTotal=mode==='MIX_VOLUME_L'?Math.round(unitPrice*volumeMl/1000):mode==='MIX_VOLUME_ML'?Math.round(unitPrice*volumeMl):Math.round(unitPrice*grams/1000);
         }
       }else if(i.product_id){
-        const pp=db.prepare("SELECT COALESCE(sale_mode,'UNIT') sale_mode,price_cents,linked_unit_product_id FROM products WHERE id=?").get(i.product_id);
+        const pp=db.prepare("SELECT COALESCE(sale_mode,'UNIT') sale_mode,price_cents,cost_cents,linked_unit_product_id FROM products WHERE id=?").get(i.product_id);
         mode=String(pp?.sale_mode||'UNIT');
         if(mode==='WEIGHT'){
-          grams=Math.round(Number(i.weight_grams||0));
+          grams=Math.round(Number(i.weight_grams||0));costTotal=Number(pp?.cost_cents||0)>0?Math.round(Number(pp.cost_cents)*grams/1000):null;
           unitCount=Math.max(0,Math.round(Number(i.unit_count||0)));
           linkedUnitProductId=pp?.linked_unit_product_id?Number(pp.linked_unit_product_id):null;
           qty=1;
           unitPrice=Number(i.unit_price_cents||pp?.price_cents||unitPrice);
           itemTotal=Math.round(unitPrice*grams/1000);
+        }else if(['VOLUME_L','VOLUME_ML'].includes(mode)){
+          volumeMl=Math.max(0,Math.round(Number(i.volume_ml||0)));qty=1;unitPrice=Number(i.unit_price_cents||pp?.price_cents||unitPrice);itemTotal=mode==='VOLUME_L'?Math.round(unitPrice*volumeMl/1000):Math.round(unitPrice*volumeMl);costTotal=Number(pp?.cost_cents||0)>0?(mode==='VOLUME_L'?Math.round(Number(pp.cost_cents)*volumeMl/1000):Math.round(Number(pp.cost_cents)*volumeMl)):null;
         }
       }
-      const si=db.prepare('INSERT INTO sale_items(sale_id,product_id,kit_id,name,quantity,unit_price_cents,total_cents,sale_mode,weight_grams,unit_count,linked_unit_product_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
-        .run(saleId,i.kit_id?null:i.product_id,i.kit_id||null,i.name,qty,unitPrice,itemTotal,mode,grams,unitCount,linkedUnitProductId);
-      if(mode==='MIX_WEIGHT')for(const x of mixItems){const p=db.prepare('SELECT name FROM products WHERE id=?').get(x.product_id);mixSaleIns.run(si.lastInsertRowid,x.product_id,p?.name||'',x.quantity,x.weight_grams||0);}
+      if(i.kit_id&&mode==='UNIT'){const parts=db.prepare("SELECT ki.quantity,ki.volume_ml,COALESCE(p.sale_mode,'UNIT') sale_mode,p.cost_cents FROM kit_items ki JOIN products p ON p.id=ki.product_id WHERE ki.kit_id=?").all(Number(i.kit_id));let totalCost=0,known=parts.length>0;for(const part of parts){const c=Number(part.cost_cents||0);if(c<=0){known=false;break;}totalCost+=['VOLUME_L','VOLUME_ML'].includes(part.sale_mode)?(part.sale_mode==='VOLUME_L'?Math.round(c*part.volume_ml/1000):Math.round(c*part.volume_ml)):c*part.quantity;}costTotal=known?totalCost*qty:null;}
+      if(i.product_id&&mode==='UNIT'){const c=Number(db.prepare('SELECT cost_cents FROM products WHERE id=?').get(i.product_id)?.cost_cents||0);costTotal=c>0?c*qty:null;}
+      const si=db.prepare('INSERT INTO sale_items(sale_id,product_id,kit_id,name,quantity,unit_price_cents,total_cents,sale_mode,weight_grams,unit_count,linked_unit_product_id,volume_ml,cost_total_cents) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run(saleId,i.kit_id?null:i.product_id,i.kit_id||null,i.name,qty,unitPrice,itemTotal,mode,grams,unitCount,linkedUnitProductId,volumeMl,costTotal);
+      if(['MIX_WEIGHT','MIX_VOLUME_L','MIX_VOLUME_ML'].includes(mode))for(const x of mixItems){const p=db.prepare('SELECT name FROM products WHERE id=?').get(x.product_id);db.prepare('INSERT INTO sale_mix_items(sale_item_id,product_id,product_name,quantity,weight_grams,volume_ml) VALUES(?,?,?,?,?,?)').run(si.lastInsertRowid,x.product_id,p?.name||'',x.quantity||1,x.weight_grams||0,x.volume_ml||0);}
     }
     for(const p of payments){if(!p.original_cents)continue;const fee=Math.round(p.original_cents*Number(p.fee_percent||0)/100);const final=p.final_cents!=null?Number(p.final_cents):p.original_cents+fee;const condition=p.method==='Cartão de crédito'?`Crédito ${p.installments||1}x · taxa ${Number(p.fee_percent||0).toFixed(2)}%`:p.method;db.prepare('INSERT INTO sale_payments(sale_id,customer_id,method,original_cents,fee_percent,fee_cents,final_cents,installments,condition_text,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(saleId,sale.customer_id||null,p.method,p.original_cents,p.fee_percent||0,fee,final,p.installments||1,condition,now())}
     for(const [pid,qty] of requirements){
@@ -1233,7 +1336,7 @@ if(sale.quote_id){
       const movementTime=now();
       db.prepare('UPDATE products SET stock=stock-?,updated_at=? WHERE id=?').run(qty,movementTime,pid);
       db.prepare('INSERT INTO stock_movements(product_id,kind,quantity,reason,created_at,sale_mode) VALUES(?,?,?,?,?,?)').run(pid,'OUT',qty,'Venda #'+saleId,movementTime,pp?.sale_mode||'UNIT');
-      const qtyText=String(pp?.sale_mode||'UNIT')==='WEIGHT'?gramsLabel(qty):`${qty} ${pp?.unit||'un'}`;
+      const mode=String(pp?.sale_mode||'UNIT');const qtyText=mode==='WEIGHT'?gramsLabel(qty):['VOLUME_L','VOLUME_ML'].includes(mode)?`${(qty/1000).toFixed(3)} L`:`${qty} ${pp?.unit||'un'}`;
       activity(sale.operator||'Caixa','Saída de estoque por venda','stock',pid,`${pp?.name||'Produto'} · ${qtyText} · Venda #${saleId}`,0,'stock');
     }
     for(const [pid,qty] of unitRequirements){
@@ -1257,9 +1360,17 @@ if(sourceQuote){
 }
     activity(sale.operator||'Caixa','Registrou venda','sale',saleId,`Total ${pdfMoney(finalTotal)} · ${deliveryRequired?'Entrega ao cliente':'Retirada na loja'}`,finalTotal,'sales');
     return ok(saleId);
-  })());
+  })();
+    if(result?.ok){
+      const committed=db.prepare('SELECT amount_paid_cents,operator FROM sales WHERE id=?').get(Number(result.data));
+      if(committed&&Number(committed.amount_paid_cents||0)>0&&settingValue('cash_drawer_auto_enabled','1')!=='0'){
+        try{triggerCashDrawer('AUTO',committed.operator||sale?.operator||'Caixa',Number(result.data));}catch(e){activity(committed.operator||'Caixa','Falha no acionamento automático da gaveta','cash_drawer',Number(result.data),String(e?.message||e),0,'cash');}
+      }
+    }
+    return result;
+  });
   ipcMain.handle('fiscal:list',()=>ok(db.prepare(`SELECT fd.*,s.sold_at,s.payment FROM fiscal_documents fd LEFT JOIN sales s ON s.id=fd.sale_id ORDER BY fd.issued_at DESC`).all()));
-  ipcMain.handle('fiscal:pending-sales',()=>ok(db.prepare("SELECT s.*,GROUP_CONCAT(si.name||CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN ' '||printf('%.3f',COALESCE(si.weight_grams,0)/1000.0)||' kg'||CASE WHEN COALESCE(si.unit_count,0)>0 THEN ' · '||si.unit_count||' un.' ELSE '' END ELSE ' x'||si.quantity END, ', ') items FROM sales s LEFT JOIN sale_items si ON si.sale_id=s.id LEFT JOIN fiscal_documents fd ON fd.sale_id=s.id WHERE fd.id IS NULL AND COALESCE(s.status,'CONCLUIDA')<>'CANCELADA' GROUP BY s.id ORDER BY s.sold_at DESC LIMIT 100").all()));
+  ipcMain.handle('fiscal:pending-sales',()=>ok(db.prepare("SELECT s.*,GROUP_CONCAT(si.name||CASE WHEN COALESCE(si.sale_mode,'UNIT') IN ('WEIGHT','MIX_WEIGHT') THEN ' '||printf('%.3f',COALESCE(si.weight_grams,0)/1000.0)||' kg'||CASE WHEN COALESCE(si.unit_count,0)>0 THEN ' · '||si.unit_count||' un.' ELSE '' END WHEN COALESCE(si.sale_mode,'UNIT') IN ('VOLUME_L','VOLUME_ML','MIX_VOLUME_L','MIX_VOLUME_ML') THEN ' '||printf('%.3f',COALESCE(si.volume_ml,0)/1000.0)||' L' ELSE ' x'||si.quantity END, ', ') items FROM sales s LEFT JOIN sale_items si ON si.sale_id=s.id LEFT JOIN fiscal_documents fd ON fd.sale_id=s.id WHERE fd.id IS NULL AND COALESCE(s.status,'CONCLUIDA')<>'CANCELADA' GROUP BY s.id ORDER BY s.sold_at DESC LIMIT 100").all()));
   ipcMain.handle('fiscal:settings',()=>{const s=Object.fromEntries(db.prepare('SELECT key,value FROM settings').all().map(x=>[x.key,x.value]));delete s.fiscal_cert_password_enc;return ok(s)});
   ipcMain.handle('fiscal:save-settings',(_,s)=>{const allowed=['fiscal_series','fiscal_next_number','fiscal_environment','company_cnpj','company_ie','company_legal_name','company_fantasy_name','company_address','company_city_code','company_crt','fiscal_csc_id','fiscal_csc_token','fiscal_cert_path','fiscal_qrcode_version','fiscal_contingency_enabled'];const q=db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');db.transaction(()=>{for(const k of allowed)if(s[k]!==undefined)q.run(k,String(s[k]??''));if(s.fiscal_cert_password){if(!safeStorage.isEncryptionAvailable())fail('O Windows não disponibilizou armazenamento seguro para a senha do certificado.','CERT_STORE');q.run('fiscal_cert_password_enc',safeStorage.encryptString(String(s.fiscal_cert_password)).toString('base64'));}})();return ok(true)});
   ipcMain.handle('fiscal:choose-certificate',async()=>{const picked=await dialog.showOpenDialog({title:'Selecionar certificado digital A1',filters:[{name:'Certificado A1',extensions:['pfx','p12']},{name:'Todos os arquivos',extensions:['*']}],properties:['openFile']});return ok(picked.canceled?false:picked.filePaths[0]||false)});
@@ -1270,7 +1381,7 @@ if(sourceQuote){
     const serviceItem=db.prepare("SELECT 1 FROM sale_items si LEFT JOIN products p ON p.id=si.product_id WHERE si.sale_id=? AND (COALESCE(p.item_type,'PRODUCT')='SERVICE' OR EXISTS (SELECT 1 FROM kit_items ki JOIN products pk ON pk.id=ki.product_id WHERE ki.kit_id=si.kit_id AND COALESCE(pk.item_type,'PRODUCT')='SERVICE')) LIMIT 1").get(Number(saleId));if(serviceItem)fail('A NFC-e não é aplicável a serviços. Para serviços ou vendas mistas, é necessária a emissão fiscal adequada (como NFS-e) fora deste emissor.','SERVICE_FISCAL');
     const s=fiscalSettings();const sale=db.prepare('SELECT * FROM sales WHERE id=?').get(saleId);if(!sale)fail('Venda não encontrada','NOT_FOUND');if(String(sale.status||'CONCLUIDA')==='CANCELADA')fail('Não é possível emitir NFC-e para uma venda cancelada.','SALE_CANCELED');if(db.prepare('SELECT id FROM fiscal_documents WHERE sale_id=?').get(saleId))fail('A venda já possui documento fiscal','DUPLICATE');
     if(!s.company_cnpj||!s.company_ie)fail('Preencha CNPJ e Inscrição Estadual na configuração fiscal.','FISCAL_CONFIG');if(!s.fiscal_csc_id||!s.fiscal_csc_token)fail('Preencha o ID e o CSC fornecidos pela SEFAZ-SP.','CSC_MISSING');if(!s.fiscal_cert_path)fail('Selecione o certificado digital A1.','CERT_MISSING');
-    const number=Number(s.fiscal_next_number||1),series=String(s.fiscal_series||'1'),env=s.fiscal_environment==='producao'?'producao':'homologacao';const items=db.prepare(`SELECT si.*,p.sku,p.unit,p.ncm,p.cfop,p.cst_csosn,p.origin FROM sale_items si LEFT JOIN products p ON p.id=si.product_id WHERE si.sale_id=?`).all(saleId).map(i=>{const weighted=['WEIGHT','MIX_WEIGHT'].includes(String(i.sale_mode||'UNIT'));return {...i,quantity:weighted?Number(i.weight_grams||0)/1000:Number(i.quantity||1),product:{sku:i.sku,unit:weighted?'KG':i.unit,ncm:i.ncm,cfop:i.cfop,cst_csosn:i.cst_csosn,origin:i.origin}}});
+    const number=Number(s.fiscal_next_number||1),series=String(s.fiscal_series||'1'),env=s.fiscal_environment==='producao'?'producao':'homologacao';const items=db.prepare(`SELECT si.*,p.sku,p.unit,p.ncm,p.cfop,p.cst_csosn,p.origin FROM sale_items si LEFT JOIN products p ON p.id=si.product_id WHERE si.sale_id=?`).all(saleId).map(i=>{const mode=String(i.sale_mode||'UNIT'),weighted=['WEIGHT','MIX_WEIGHT'].includes(mode),volume=['VOLUME_L','VOLUME_ML','MIX_VOLUME_L','MIX_VOLUME_ML'].includes(mode);return {...i,quantity:weighted?Number(i.weight_grams||0)/1000:volume?(mode.endsWith('_L')?Number(i.volume_ml||0)/1000:Number(i.volume_ml||0)):Number(i.quantity||1),product:{sku:i.sku,unit:weighted?'KG':volume?(mode.endsWith('_L')?'L':'ML'):i.unit,ncm:i.ncm,cfop:i.cfop,cst_csosn:i.cst_csosn,origin:i.origin}}});
     const cNF=String(Math.floor(Math.random()*90000000)+10000000);let doc=nfce.buildNfce({settings:s,sale,items,number,series,tpEmis:1,cNF,environment:env});const cert=nfce.loadPfx(s.fiscal_cert_path,s.__certPassword||'');doc.signedXml=nfce.signXml(doc.xml,'NFe'+doc.key,cert);const qr=nfce.addQrCode(doc.signedXml,{...doc,customer_document:sale.customer_document},s);doc.signedXml=qr.xml;doc.qrUrl=qr.url;doc.digVal=qr.digVal;doc.protocol='';doc.paymentLabel=sale.payment;
     const fiscalRoot=path.join(app.getPath('userData'),'fiscal','NFC-e',env,new Date(sale.sold_at).getFullYear().toString(),String(new Date(sale.sold_at).getMonth()+1).padStart(2,'0'));fs.mkdirSync(fiscalRoot,{recursive:true});const xmlPath=path.join(fiscalRoot,`${doc.key}-procNFe.xml`);fs.writeFileSync(xmlPath,doc.signedXml,'utf8');
     const docId=db.prepare('INSERT INTO fiscal_documents(sale_id,number,series,model,status,issued_at,access_key,customer_name,customer_document,total_cents,xml,environment,tp_emis,qr_url,xml_path) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(saleId,number,series,'65','TRANSMITINDO',now(),doc.key,sale.customer_name||'',sale.customer_document||'',sale.total_cents,doc.signedXml,env,1,doc.qrUrl,xmlPath).lastInsertRowid;
@@ -1508,9 +1619,14 @@ let appStarted = false;
 function startApplication() {
   if (appStarted) return;
   appStarted = true;
-  try { initDb(); require('./operator-auth').ensure(db); mobileLink=require('./mobile-server').install({ipcMain,getDb:()=>db,app,BrowserWindow,dialog,clipboard:require('electron').clipboard}); registerIpc(); require('./uni-management').install(db,ipcMain); mobileLink.startIfEnabled(); setInterval(()=>scheduledBackup().catch(error=>{try{settingValue('backup_last_error',`${now()} — ${error?.message||String(error)}`)}catch{}}),30000); scheduledBackup().catch(error=>{try{settingValue('backup_last_error',`${now()} — ${error?.message||String(error)}`)}catch{}}); } catch (e) { const detail=e?.message||String(e); try{fs.mkdirSync(app.getPath('userData'),{recursive:true});fs.writeFileSync(path.join(app.getPath('userData'),'startup-error.log'),detail)}catch{}; dialog.showErrorBox('Uni-PDV — erro ao iniciar',detail); app.quit(); return; }
+  try { initDb(); require('./operator-auth').ensure(db); mobileLink=require('./mobile-server').install({ipcMain,getDb:()=>db,app,BrowserWindow,dialog,clipboard:require('electron').clipboard}); registerIpc(); require('./uni-management').install(db,ipcMain); mobileLink.startIfEnabled(); setInterval(()=>scheduledBackup().catch(error=>{try{settingValue('backup_last_error',`${now()} — ${error?.message||String(error)}`)}catch{}}),30000); scheduledBackup().catch(error=>{try{settingValue('backup_last_error',`${now()} — ${error?.message||String(error)}`)}catch{}}); } catch (e) { const detail=e?.message||String(e); try{fs.mkdirSync(app.getPath('userData'),{recursive:true});fs.writeFileSync(path.join(app.getPath('userData'),'startup-error.log'),detail)}catch{}; dialog.showErrorBox('Jhonnie Beer — erro ao iniciar',detail); app.quit(); return; }
   const isDev=!app.isPackaged&&!process.argv.includes('--production');
-  const win=new BrowserWindow({width:1440,height:900,minWidth:1100,minHeight:700,icon:path.join(__dirname,'..','assets','icon.ico'),backgroundColor:'#0b0d10',webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false}});
+  const readWindowSetting=(key,fallback)=>{const value=db.prepare('SELECT value FROM settings WHERE key=?').get(key)?.value;const n=Number(value);return Number.isFinite(n)?n:fallback;};
+  const savedMaximized=String(db.prepare("SELECT value FROM settings WHERE key='window_maximized'").get()?.value||'0')==='1';
+  const win=new BrowserWindow({width:Math.max(1100,readWindowSetting('window_width',1440)),height:Math.max(700,readWindowSetting('window_height',900)),...(Number.isFinite(readWindowSetting('window_x',NaN))?{x:readWindowSetting('window_x',0)}:{}),...(Number.isFinite(readWindowSetting('window_y',NaN))?{y:readWindowSetting('window_y',0)}:{}),minWidth:1100,minHeight:700,show:false,icon:path.join(__dirname,'icon.ico'),backgroundColor:'#0b0d10',webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false}});
+  const persistWindowState=()=>{if(win.isDestroyed())return;const maximized=win.isMaximized();db.prepare("INSERT INTO settings(key,value) VALUES('window_maximized',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(maximized?'1':'0');if(!maximized&&!win.isFullScreen()){const b=win.getBounds();const q=db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');q.run('window_width',String(b.width));q.run('window_height',String(b.height));q.run('window_x',String(b.x));q.run('window_y',String(b.y));}};
+  win.once('ready-to-show',()=>{if(savedMaximized)win.maximize();win.show();});
+  win.on('resize',persistWindowState);win.on('move',persistWindowState);win.on('maximize',persistWindowState);win.on('unmaximize',persistWindowState);win.on('close',persistWindowState);
   const sendTheme=(theme)=>{db.prepare("INSERT INTO settings(key,value) VALUES('theme',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(theme);win.webContents.send('theme:set',theme)};
   const themeOptions=[
     ['Café','casa'],
@@ -1529,9 +1645,10 @@ function startApplication() {
     ['Rosa','eremenina'],
     ['Carvão & Laranja','cigano'],
     ['Ônix','encruza'],
-    ['Multicolorido','rainbow']
+    ['Multicolorido','rainbow'],
+    ['Jhonnie Beer','jhonnie']
   ];
-  const savedTheme=String(db.prepare("SELECT value FROM settings WHERE key='theme'").get()?.value||'casa');
+  const savedTheme=String(db.prepare("SELECT value FROM settings WHERE key='theme'").get()?.value||'jhonnie');
   const enterFullScreen=()=>{try{win.setKiosk(false);win.setFullScreenable(true);win.setFullScreen(true);}catch{}};
   const exitFullScreen=()=>{try{win.setKiosk(false);win.setFullScreen(false);win.setMenuBarVisibility(true);win.setAutoHideMenuBar(false);win.focus();}catch{}};
   win.on('enter-full-screen',()=>{try{win.setMenuBarVisibility(false);}catch{}});
@@ -1544,10 +1661,10 @@ function startApplication() {
     {label:'Tema',submenu:themeOptions.map(([label,id])=>({label,type:'radio',checked:id===savedTheme,click:()=>sendTheme(id)}))},
     {label:'Sobre',click:()=>{
       if(win.__uniAbout&&!win.__uniAbout.isDestroyed()){win.__uniAbout.show();win.__uniAbout.focus();return;}
-      const art=path.join(__dirname,'..','assets','uni-softwares-logo-sobre.png');
+      const art=path.join(__dirname,'uni-softwares-logo-sobre.png');
       const image=fs.existsSync(art)?`data:image/png;base64,${fs.readFileSync(art).toString('base64')}`:'';
-      const w=new BrowserWindow({width:520,height:590,resizable:false,modal:true,parent:win,show:false,backgroundColor:'#0b1021',webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true}});win.__uniAbout=w;w.on('closed',()=>{win.__uniAbout=null});
-      const html=`<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"></head><body style="margin:0;min-height:100vh;box-sizing:border-box;padding:24px 32px;background:linear-gradient(#090c1a,#14172a);color:#f4f5ff;font-family:Segoe UI,Arial;text-align:center"><img alt="Logo Uni Softwares" src="${image}" style="height:235px;width:235px;border-radius:50%;object-fit:contain"><h1 style="margin:10px 0 5px;color:#69dbff">Uni Softwares</h1><p style="margin:0;color:#c7cbed">Por Rudnei Souza</p><hr style="border:0;border-top:1px solid #334366;margin:16px 0"><h2 style="margin:6px 0;font-size:19px;color:#ffd29c">Uni-PDV</h2><p style="font-size:14px">Sistema de Ponto de Vendas · Versão 3.1</p><p style="font-size:12px;color:#b1b7d0">Desenvolvido em 2026</p></body></html>`;
+      const w=new BrowserWindow({width:520,height:630,resizable:false,modal:true,parent:win,show:false,autoHideMenuBar:true,backgroundColor:'#0b1021',webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true}});w.removeMenu();win.__uniAbout=w;w.on('closed',()=>{win.__uniAbout=null});
+      const html=`<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"></head><body style="margin:0;min-height:100vh;box-sizing:border-box;padding:24px 32px;background:linear-gradient(#090c1a,#14172a);color:#f4f5ff;font-family:Segoe UI,Arial;text-align:center"><img alt="Logo Uni Softwares" src="${image}" style="height:235px;width:235px;border-radius:50%;object-fit:contain"><h1 style="margin:10px 0 5px;color:#69dbff">Uni Softwares</h1><p style="margin:0;color:#c7cbed">Por Rudnei Souza</p><hr style="border:0;border-top:1px solid #334366;margin:16px 0"><h2 style="margin:6px 0;font-size:19px;color:#ffd29c">Uni-PDV</h2><p style="margin:4px 0;font-size:16px;font-weight:700;color:#e9bd68">Jhonnie Beer</p><p style="font-size:14px">Sistema de Ponto de Vendas · Versão 3.2.5</p><p style="font-size:12px;color:#b1b7d0">Desenvolvido em 2026</p></body></html>`;
       const aboutUrl='data:text/html;charset=utf-8,'+encodeURIComponent(html);
       w.once('ready-to-show',()=>{if(!w.isDestroyed())w.show()});
       w.loadURL(aboutUrl).then(()=>{if(!w.isDestroyed()){w.show();w.focus()}}).catch(error=>{console.error('[Sobre] Não foi possível abrir janela:',error);if(!w.isDestroyed()){w.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent('<h2 style="font-family:Arial">Uni Softwares</h2><p>Uni-PDV · Versão 3.1</p><p>Por Rudnei Souza</p>')).catch(()=>{});w.show();}});
@@ -1570,27 +1687,6 @@ function startApplication() {
 
 }
 
-let activationWindow=null;
-function openOfflineActivation(){
-  if(activationWindow&&!activationWindow.isDestroyed()){activationWindow.focus();return;}
-  activationWindow=new BrowserWindow({width:600,height:420,minWidth:500,minHeight:380,resizable:true,autoHideMenuBar:true,title:'Uni-PDV Licenciado · Chave offline',icon:path.join(__dirname,'..','assets','icon.ico'),webPreferences:{preload:path.join(__dirname,'offline-license-preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
-  activationWindow.loadFile(path.join(__dirname,'offline-license.html'));
-  activationWindow.on('closed',()=>{activationWindow=null;if(!appStarted)app.quit()});
-}
-ipcMain.handle('offline-license:status',event=>{
-  if(!activationWindow||event.sender!==activationWindow.webContents)throw Error('Acesso não autorizado.');
-  return offlineLicense.status(app.getPath('userData'),undefined,safeStorage);
-});
-ipcMain.handle('offline-license:activate',(event,input)=>{
-  if(!activationWindow||event.sender!==activationWindow.webContents)throw Error('Acesso não autorizado.');
-  const result=offlineLicense.activate(app.getPath('userData'),input?.serial,undefined,safeStorage);
-  if(result.valid){const w=activationWindow;activationWindow=null;startApplication();if(w&&!w.isDestroyed())w.close();}
-  return result;
-});
-app.whenReady().then(() => {
-  const state=offlineLicense.autoActivate(app.getPath('userData'),undefined,safeStorage);
-  if(!app.isPackaged||state.valid){startApplication();return;}
-  openOfflineActivation();
-});
+app.whenReady().then(()=>startApplication());
 
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
