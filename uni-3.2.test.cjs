@@ -4,6 +4,7 @@ const {DatabaseSync}=require('node:sqlite');
 const auth=require('./operator-auth');
 const mobile=require('./mobile-server');
 const management=require('./uni-management');
+const cashDrawer=require('./cash-drawer');
 function fixture(){
  const db=new DatabaseSync(':memory:');db.transaction=fn=>(...args)=>{db.exec('BEGIN');try{const value=fn(...args);db.exec('COMMIT');return value}catch(e){db.exec('ROLLBACK');throw e}};db.exec(`CREATE TABLE operators(id INTEGER PRIMARY KEY,name TEXT,photo_data TEXT DEFAULT '',role TEXT DEFAULT 'operator',password_hash TEXT DEFAULT '',active INTEGER DEFAULT 1,created_at TEXT DEFAULT '');CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT);CREATE TABLE products(id INTEGER PRIMARY KEY,name TEXT,item_type TEXT,cost_cents INTEGER DEFAULT 0,price_cents INTEGER DEFAULT 0,sale_mode TEXT DEFAULT 'UNIT');CREATE TABLE kits(id INTEGER PRIMARY KEY,name TEXT);CREATE TABLE sales(id INTEGER PRIMARY KEY,sold_at TEXT,total_cents INTEGER,discount_cents INTEGER DEFAULT 0,delivery_cents INTEGER DEFAULT 0,status TEXT DEFAULT 'CONCLUIDA');CREATE TABLE sale_items(id INTEGER PRIMARY KEY,product_id INTEGER,kit_id INTEGER,sale_id INTEGER,name TEXT,quantity INTEGER,total_cents INTEGER,sale_mode TEXT,weight_grams INTEGER);CREATE TABLE finance_entries(id INTEGER PRIMARY KEY,entry_type TEXT,amount_cents INTEGER,status TEXT,paid_at TEXT,issue_date TEXT);`);auth.ensure(db);return db;
 }
@@ -30,3 +31,5 @@ test('Servidor vincula um operador ao aparelho, revoga e evita reexecução da v
  const second=await link._test.dispatch(req('/v1/login'),{...payload,username:'caixa'});assert.ok(second.data.token);
  db.close();fs.rmSync(dir,{recursive:true,force:true});
 });
+
+test('Pulso ESC/POS da gaveta respeita pino 2/5 e limites de duração',()=>{assert.deepEqual([...cashDrawer.buildPulse(2,100,100)],[27,112,0,50,50]);assert.deepEqual([...cashDrawer.buildPulse(5,200,300)],[27,112,1,100,150]);assert.throws(()=>cashDrawer.buildPulse(3,100,100),/pino 2 ou 5/);});
