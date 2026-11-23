@@ -957,7 +957,7 @@ ipcMain.handle('quotes:set-status',(_,id,status)=>{
     const barcode=String(p?.barcode||'').replace(/\D/g,'');
     try{
       const isService=String(p?.item_type||'PRODUCT').toUpperCase()==='SERVICE';
-      const mode=isService?'UNIT':String(p?.sale_mode||'UNIT').toUpperCase()==='WEIGHT'?'WEIGHT':'UNIT';
+      const requestedMode=String(p?.sale_mode||'UNIT').toUpperCase();const mode=isService?'UNIT':(['WEIGHT','VOLUME_L','VOLUME_ML'].includes(requestedMode)?requestedMode:'UNIT');
       const stock=isService?0:Math.max(0,Math.round(Number(p?.stock||0)));
       const minStock=isService?0:Math.max(0,Math.round(Number(p?.min_stock||0)));
       let linkedUnitProductId=mode==='WEIGHT'&&p?.linked_unit_product_id?Number(p.linked_unit_product_id):null;
@@ -992,14 +992,14 @@ ipcMain.handle('quotes:set-status',(_,id,status)=>{
           stockDelta=stock-Number(current.stock||0);
           unitDelta=unitStock-Number(current.unit_stock||0);
           db.prepare('UPDATE products SET sku=?,barcode=?,name=?,category_id=?,supplier_id=?,price_cents=?,cost_cents=?,stock=?,min_stock=?,unit=?,ncm=?,cfop=?,cst_csosn=?,origin=?,sale_mode=?,linked_unit_product_id=?,default_units_per_kg=?,track_unit_stock=?,unit_stock=?,unit_min_stock=?,updated_at=? WHERE id=?')
-            .run(p.sku||null,barcode||null,productName,p.category_id||null,p.supplier_id||null,p.price_cents||0,p.cost_cents||0,stock,minStock,mode==='WEIGHT'?'kg':(p.unit||'un'),p.ncm||'',p.cfop||'',p.cst_csosn||'',p.origin||'0',mode,linkedUnitProductId,defaultUnitsPerKg,trackUnitStock,unitStock,unitMinStock,t,savedId);
+            .run(p.sku||null,barcode||null,productName,p.category_id||null,p.supplier_id||null,p.price_cents||0,p.cost_cents||0,stock,minStock,mode==='WEIGHT'?'kg':mode==='VOLUME_L'?'L':mode==='VOLUME_ML'?'ml':(p.unit||'un'),p.ncm||'',p.cfop||'',p.cst_csosn||'',p.origin||'0',mode,linkedUnitProductId,defaultUnitsPerKg,trackUnitStock,unitStock,unitMinStock,t,savedId);
           if(stockDelta!==0)db.prepare('INSERT INTO stock_movements(product_id,kind,quantity,unit_cost_cents,reason,created_at,sale_mode,supplier_id) VALUES(?,?,?,?,?,?,?,?)')
             .run(savedId,stockDelta>0?'IN':'OUT',Math.abs(stockDelta),p.cost_cents||current.cost_cents||0,'Ajuste no cadastro do produto',t,mode,p.supplier_id||current.supplier_id||null);
           if(trackUnitStock&&unitDelta!==0)db.prepare('INSERT INTO unit_stock_movements(product_id,kind,quantity,reason,sale_id,created_at) VALUES(?,?,?,?,?,?)')
             .run(savedId,unitDelta>0?'IN':'OUT',Math.abs(unitDelta),'Ajuste no cadastro do produto',null,t);
         }else{
           const r=db.prepare('INSERT INTO products(sku,barcode,name,category_id,supplier_id,price_cents,cost_cents,stock,min_stock,unit,ncm,cfop,cst_csosn,origin,sale_mode,linked_unit_product_id,default_units_per_kg,track_unit_stock,unit_stock,unit_min_stock,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-            .run(p.sku||null,barcode||null,productName,p.category_id||null,p.supplier_id||null,p.price_cents||0,p.cost_cents||0,stock,minStock,mode==='WEIGHT'?'kg':(p.unit||'un'),p.ncm||'',p.cfop||'',p.cst_csosn||'',p.origin||'0',mode,linkedUnitProductId,defaultUnitsPerKg,trackUnitStock,unitStock,unitMinStock,t,t);
+            .run(p.sku||null,barcode||null,productName,p.category_id||null,p.supplier_id||null,p.price_cents||0,p.cost_cents||0,stock,minStock,mode==='WEIGHT'?'kg':mode==='VOLUME_L'?'L':mode==='VOLUME_ML'?'ml':(p.unit||'un'),p.ncm||'',p.cfop||'',p.cst_csosn||'',p.origin||'0',mode,linkedUnitProductId,defaultUnitsPerKg,trackUnitStock,unitStock,unitMinStock,t,t);
           savedId=Number(r.lastInsertRowid);
           stockDelta=stock;
           unitDelta=unitStock;
@@ -1179,7 +1179,7 @@ if(sale.quote_id){
           subtotal+=kit.price_cents*i.quantity;
         }
       }else{
-        const p=db.prepare("SELECT stock,name,COALESCE(sale_mode,'UNIT') sale_mode,price_cents,linked_unit_product_id,COALESCE(track_unit_stock,0) track_unit_stock,COALESCE(unit_stock,0) unit_stock FROM products WHERE id=? AND active=1").get(i.product_id);
+        const p=db.prepare("SELECT stock,name,unit,COALESCE(sale_mode,'UNIT') sale_mode,price_cents,linked_unit_product_id,COALESCE(track_unit_stock,0) track_unit_stock,COALESCE(unit_stock,0) unit_stock FROM products WHERE id=? AND active=1").get(i.product_id);
         if(!p)fail('Produto não encontrado','NOT_FOUND');
         if(p.sale_mode==='WEIGHT'){
           const grams=Math.round(Number(i.weight_grams||0));
@@ -1197,6 +1197,8 @@ if(sale.quote_id){
             }
           }
           subtotal+=Math.round(Number(i.unit_price_cents||p.price_cents||0)*grams/1000);
+        }else if(['VOLUME_L','VOLUME_ML'].includes(p.sale_mode)){
+          const ml=Math.max(0,Math.round(Number(i.volume_ml||0)));if(ml<=0)fail(`Informe o volume de ${p.name}.`,'VOLUME_REQUIRED');addRequirement(i.product_id,ml);subtotal+=p.sale_mode==='VOLUME_L'?Math.round(Number(i.unit_price_cents||p.price_cents||0)*ml/1000):Math.round(Number(i.unit_price_cents||p.price_cents||0)*ml);
         }else{
           const qty=Math.max(1,Math.round(Number(i.quantity||1)));
           addRequirement(i.product_id,qty);
@@ -1252,7 +1254,7 @@ if(sale.quote_id){
 ).lastInsertRowid;
     const mixSaleIns=db.prepare('INSERT INTO sale_mix_items(sale_item_id,product_id,product_name,quantity,weight_grams) VALUES(?,?,?,?,?)');
     for(const i of sale.items){
-      let mode='UNIT',qty=Math.max(1,Math.round(Number(i.quantity||1))),grams=0,unitCount=0,linkedUnitProductId=null,unitPrice=Number(i.unit_price_cents||0),itemTotal=unitPrice*qty,mixItems=[];
+      let mode='UNIT',qty=Math.max(1,Math.round(Number(i.quantity||1))),grams=0,volumeMl=0,unitCount=0,linkedUnitProductId=null,unitPrice=Number(i.unit_price_cents||0),itemTotal=unitPrice*qty,mixItems=[];
       if(i.kit_id){
         const kit=db.prepare('SELECT * FROM kits WHERE id=?').get(Number(i.kit_id));
         if(String(kit?.kit_type||'STANDARD')==='MIX_WEIGHT'){
@@ -1275,10 +1277,12 @@ if(sale.quote_id){
           qty=1;
           unitPrice=Number(i.unit_price_cents||pp?.price_cents||unitPrice);
           itemTotal=Math.round(unitPrice*grams/1000);
+        }else if(['VOLUME_L','VOLUME_ML'].includes(mode)){
+          volumeMl=Math.max(0,Math.round(Number(i.volume_ml||0)));qty=1;unitPrice=Number(i.unit_price_cents||pp?.price_cents||unitPrice);itemTotal=mode==='VOLUME_L'?Math.round(unitPrice*volumeMl/1000):Math.round(unitPrice*volumeMl);
         }
       }
-      const si=db.prepare('INSERT INTO sale_items(sale_id,product_id,kit_id,name,quantity,unit_price_cents,total_cents,sale_mode,weight_grams,unit_count,linked_unit_product_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
-        .run(saleId,i.kit_id?null:i.product_id,i.kit_id||null,i.name,qty,unitPrice,itemTotal,mode,grams,unitCount,linkedUnitProductId);
+      const si=db.prepare('INSERT INTO sale_items(sale_id,product_id,kit_id,name,quantity,unit_price_cents,total_cents,sale_mode,weight_grams,unit_count,linked_unit_product_id,volume_ml) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run(saleId,i.kit_id?null:i.product_id,i.kit_id||null,i.name,qty,unitPrice,itemTotal,mode,grams,unitCount,linkedUnitProductId,volumeMl);
       if(mode==='MIX_WEIGHT')for(const x of mixItems){const p=db.prepare('SELECT name FROM products WHERE id=?').get(x.product_id);mixSaleIns.run(si.lastInsertRowid,x.product_id,p?.name||'',x.quantity,x.weight_grams||0);}
     }
     for(const p of payments){if(!p.original_cents)continue;const fee=Math.round(p.original_cents*Number(p.fee_percent||0)/100);const final=p.final_cents!=null?Number(p.final_cents):p.original_cents+fee;const condition=p.method==='Cartão de crédito'?`Crédito ${p.installments||1}x · taxa ${Number(p.fee_percent||0).toFixed(2)}%`:p.method;db.prepare('INSERT INTO sale_payments(sale_id,customer_id,method,original_cents,fee_percent,fee_cents,final_cents,installments,condition_text,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(saleId,sale.customer_id||null,p.method,p.original_cents,p.fee_percent||0,fee,final,p.installments||1,condition,now())}
@@ -1287,7 +1291,7 @@ if(sale.quote_id){
       const movementTime=now();
       db.prepare('UPDATE products SET stock=stock-?,updated_at=? WHERE id=?').run(qty,movementTime,pid);
       db.prepare('INSERT INTO stock_movements(product_id,kind,quantity,reason,created_at,sale_mode) VALUES(?,?,?,?,?,?)').run(pid,'OUT',qty,'Venda #'+saleId,movementTime,pp?.sale_mode||'UNIT');
-      const qtyText=String(pp?.sale_mode||'UNIT')==='WEIGHT'?gramsLabel(qty):`${qty} ${pp?.unit||'un'}`;
+      const mode=String(pp?.sale_mode||'UNIT');const qtyText=mode==='WEIGHT'?gramsLabel(qty):['VOLUME_L','VOLUME_ML'].includes(mode)?`${(qty/1000).toFixed(3)} L`:`${qty} ${pp?.unit||'un'}`;
       activity(sale.operator||'Caixa','Saída de estoque por venda','stock',pid,`${pp?.name||'Produto'} · ${qtyText} · Venda #${saleId}`,0,'stock');
     }
     for(const [pid,qty] of unitRequirements){
