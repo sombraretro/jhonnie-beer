@@ -104,7 +104,7 @@ function initDb(){
   addColumn('products','item_type',"TEXT NOT NULL DEFAULT 'PRODUCT'");
   addColumn('products','duration_minutes',"INTEGER NOT NULL DEFAULT 60");
   addColumn('products','barcode',"TEXT DEFAULT ''"); addColumn('products','ncm',"TEXT DEFAULT ''"); addColumn('products','cfop',"TEXT DEFAULT ''"); addColumn('products','cst_csosn',"TEXT DEFAULT ''"); addColumn('products','origin',"TEXT DEFAULT '0'"); addColumn('products','sale_mode',"TEXT NOT NULL DEFAULT 'UNIT'"); addColumn('products','linked_unit_product_id','INTEGER'); addColumn('products','default_units_per_kg','INTEGER NOT NULL DEFAULT 0'); addColumn('products','track_unit_stock','INTEGER NOT NULL DEFAULT 0'); addColumn('products','unit_stock','INTEGER NOT NULL DEFAULT 0'); addColumn('products','unit_min_stock','INTEGER NOT NULL DEFAULT 0');
-  addColumn('sale_items','sale_mode',"TEXT NOT NULL DEFAULT 'UNIT'"); addColumn('sale_items','weight_grams','INTEGER NOT NULL DEFAULT 0'); addColumn('sale_items','volume_ml','INTEGER NOT NULL DEFAULT 0'); addColumn('sale_items','unit_count','INTEGER NOT NULL DEFAULT 0'); addColumn('sale_items','linked_unit_product_id','INTEGER');
+  addColumn('sale_items','cost_total_cents','INTEGER'); addColumn('sale_items','sale_mode',"TEXT NOT NULL DEFAULT 'UNIT'"); addColumn('sale_items','weight_grams','INTEGER NOT NULL DEFAULT 0'); addColumn('sale_items','volume_ml','INTEGER NOT NULL DEFAULT 0'); addColumn('sale_items','unit_count','INTEGER NOT NULL DEFAULT 0'); addColumn('sale_items','linked_unit_product_id','INTEGER');
   addColumn('quote_items','sale_mode',"TEXT NOT NULL DEFAULT 'UNIT'"); addColumn('quote_items','weight_grams','INTEGER NOT NULL DEFAULT 0'); addColumn('quote_items','volume_ml','INTEGER NOT NULL DEFAULT 0'); addColumn('quote_items','unit_count','INTEGER NOT NULL DEFAULT 0'); addColumn('quote_items','linked_unit_product_id','INTEGER');
   db.exec(`CREATE TABLE IF NOT EXISTS unit_stock_movements(id INTEGER PRIMARY KEY AUTOINCREMENT,product_id INTEGER NOT NULL,kind TEXT NOT NULL,quantity INTEGER NOT NULL,reason TEXT DEFAULT '',sale_id INTEGER,created_at TEXT NOT NULL); CREATE INDEX IF NOT EXISTS idx_unit_stock_movements_sale ON unit_stock_movements(sale_id);`);
   db.exec(`CREATE TABLE IF NOT EXISTS sale_mix_items(id INTEGER PRIMARY KEY AUTOINCREMENT,sale_item_id INTEGER NOT NULL,product_id INTEGER NOT NULL,product_name TEXT NOT NULL,quantity INTEGER NOT NULL,FOREIGN KEY(sale_item_id) REFERENCES sale_items(id) ON DELETE CASCADE); CREATE INDEX IF NOT EXISTS idx_sale_mix_items_sale_item ON sale_mix_items(sale_item_id);`);
@@ -1298,7 +1298,7 @@ if(sale.quote_id){
 ).lastInsertRowid;
     const mixSaleIns=db.prepare('INSERT INTO sale_mix_items(sale_item_id,product_id,product_name,quantity,weight_grams) VALUES(?,?,?,?,?)');
     for(const i of sale.items){
-      let mode='UNIT',qty=Math.max(1,Math.round(Number(i.quantity||1))),grams=0,volumeMl=0,unitCount=0,linkedUnitProductId=null,unitPrice=Number(i.unit_price_cents||0),itemTotal=unitPrice*qty,mixItems=[];
+      let mode='UNIT',qty=Math.max(1,Math.round(Number(i.quantity||1))),grams=0,volumeMl=0,unitCount=0,linkedUnitProductId=null,unitPrice=Number(i.unit_price_cents||0),itemTotal=unitPrice*qty,mixItems=[],costTotal=null;
       if(i.kit_id){
         const kit=db.prepare('SELECT * FROM kits WHERE id=?').get(Number(i.kit_id));
         if(['MIX_WEIGHT','MIX_VOLUME_L','MIX_VOLUME_ML'].includes(String(kit?.kit_type||'STANDARD'))){
@@ -1320,7 +1320,7 @@ if(sale.quote_id){
           unitPrice=Number(i.unit_price_cents||pp?.price_cents||unitPrice);
           itemTotal=Math.round(unitPrice*grams/1000);
         }else if(['VOLUME_L','VOLUME_ML'].includes(mode)){
-          volumeMl=Math.max(0,Math.round(Number(i.volume_ml||0)));qty=1;unitPrice=Number(i.unit_price_cents||pp?.price_cents||unitPrice);itemTotal=mode==='VOLUME_L'?Math.round(unitPrice*volumeMl/1000):Math.round(unitPrice*volumeMl);
+          volumeMl=Math.max(0,Math.round(Number(i.volume_ml||0)));qty=1;unitPrice=Number(i.unit_price_cents||pp?.price_cents||unitPrice);itemTotal=mode==='VOLUME_L'?Math.round(unitPrice*volumeMl/1000):Math.round(unitPrice*volumeMl);costTotal=Number(pp?.cost_cents||0)>0?(mode==='VOLUME_L'?Math.round(Number(pp.cost_cents)*volumeMl/1000):Math.round(Number(pp.cost_cents)*volumeMl)):null;
         }
       }
       const si=db.prepare('INSERT INTO sale_items(sale_id,product_id,kit_id,name,quantity,unit_price_cents,total_cents,sale_mode,weight_grams,unit_count,linked_unit_product_id,volume_ml) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
