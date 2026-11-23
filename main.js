@@ -119,7 +119,7 @@ function initDb(){
   addColumn('sales','change_cents','INTEGER NOT NULL DEFAULT 0'); addColumn('sales','delivery_cents','INTEGER NOT NULL DEFAULT 0'); addColumn('sales','delivery_required','INTEGER NOT NULL DEFAULT 0'); addColumn('sales','delivery_method',"TEXT DEFAULT ''"); addColumn('sales','discount_cents','INTEGER NOT NULL DEFAULT 0'); addColumn('sales','discount_percent','REAL NOT NULL DEFAULT 0'); addColumn('sales','payment_json',"TEXT DEFAULT '[]'"); addColumn('sales','cash_register_id','INTEGER'); addColumn('products','supplier_id','INTEGER');addColumn('sales','quote_id','INTEGER');
   addColumn('fiscal_documents','protocol','TEXT'); addColumn('fiscal_documents','response_xml','TEXT'); addColumn('fiscal_documents','qr_url','TEXT'); addColumn('fiscal_documents','xml_path','TEXT'); addColumn('fiscal_documents','environment',"TEXT DEFAULT 'homologacao'"); addColumn('fiscal_documents','tp_emis','INTEGER DEFAULT 1');
   const q=db.prepare('INSERT INTO categories(name,icon,active) SELECT ?,?,1 WHERE NOT EXISTS (SELECT 1 FROM categories WHERE lower(name)=lower(?) AND parent_id IS NULL)'); CATEGORIES.forEach((x,i)=>q.run(x,CATEGORY_ICONS[i],x)); q.run('Kits / Combos','layers','Kits / Combos');
-  addColumn('kits','category_id','INTEGER'); addColumn('kits','kit_type',"TEXT NOT NULL DEFAULT 'STANDARD'"); addColumn('kits','weight_product_id','INTEGER'); addColumn('kits','mix_category_id','INTEGER'); const kitCat=db.prepare("SELECT id FROM categories WHERE name='Kits / Combos'").get(); if(kitCat){db.prepare('UPDATE kits SET category_id=? WHERE category_id IS NULL').run(kitCat.id);}
+  addColumn('kits','category_id','INTEGER'); addColumn('kits','kit_type',"TEXT NOT NULL DEFAULT 'STANDARD'"); addColumn('kits','weight_product_id','INTEGER'); addColumn('kits','volume_product_id','INTEGER'); addColumn('kits','mix_category_id','INTEGER'); const kitCat=db.prepare("SELECT id FROM categories WHERE name='Kits / Combos'").get(); if(kitCat){db.prepare('UPDATE kits SET category_id=? WHERE category_id IS NULL').run(kitCat.id);}
   const COD_MUN_ARACATUBA='3502804';
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode) WHERE barcode IS NOT NULL AND barcode<>'';");
   // cleanup duplicate active categories: keep the oldest ID and preserve references
@@ -681,7 +681,7 @@ function registerIpc(){
         if(!kit)fail(`Kit / Combo "${name}" não encontrado.`,'NOT_FOUND');
         name=String(kit.name||name);
         price=Number(kit.price_cents||price);
-        if(String(kit.kit_type||'STANDARD')==='MIX_WEIGHT'){
+        if(['MIX_WEIGHT','MIX_VOLUME_L','MIX_VOLUME_ML'].includes(String(kit.kit_type||'STANDARD'))){
           mode='MIX_WEIGHT';
           mixItems=(Array.isArray(i.mix_items)?i.mix_items:[]).map(x=>({product_id:Number(x.product_id),quantity:Math.max(0,Math.round(Number(x.quantity||0))),weight_grams:Math.max(0,Math.round(Number(x.weight_grams||0)))})).filter(x=>x.product_id&&x.quantity>0);
           if(!mixItems.length)fail(`Selecione pelo menos uma cor/produto para ${name}.`,'MIX_EMPTY');
@@ -691,7 +691,7 @@ function registerIpc(){
             seen.add(x.product_id);
             const p=db.prepare("SELECT p.id,p.name,p.active,p.category_id,c.parent_id,p.item_type,COALESCE(p.sale_mode,'UNIT') sale_mode FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.id=?").get(x.product_id);
             if(!p||!p.active)fail('Um produto do Mix não está disponível.','MIX_PRODUCT_NOT_FOUND');
-            if(p.sale_mode!=='UNIT'||p.item_type==='SERVICE')fail(`O produto "${p.name}" precisa ser vendido por unidade para participar do Mix.`,'MIX_PRODUCT_MODE');
+            if(volumeMix?(!['VOLUME_L','VOLUME_ML'].includes(p.sale_mode)||p.item_type==='SERVICE'):(p.sale_mode!=='UNIT'||p.item_type==='SERVICE'))fail(volumeMix?`O produto "${p.name}" precisa ter controle de volume para participar deste Mix.`:`O produto "${p.name}" precisa ser vendido por unidade para participar do Mix.`,'MIX_PRODUCT_MODE');
             if(kit.mix_category_id&&Number(p.category_id)!==Number(kit.mix_category_id)&&Number(p.parent_id)!==Number(kit.mix_category_id))fail(`O produto "${p.name}" não pertence à categoria configurada para este Mix.`,'MIX_CATEGORY');
             if(x.weight_grams<=0)fail(`Informe o peso de ${p.name} dentro do Mix ${name}.`,'MIX_WEIGHT_REQUIRED');
             x.name=p.name;
@@ -1090,8 +1090,8 @@ ipcMain.handle('quotes:set-status',(_,id,status)=>{
     activity(currentOperator()?.name||'Sistema',kind==='IN'?'Entrada de estoque':'Saída de estoque','stock',Number(m.product_id),`${p.name} · ${qtyText}${reason?` · Motivo: ${reason}`:''}${totalValue>0?` · Valor de referência ${pdfMoney(totalValue)}`:''}`,totalValue,'stock');
     return ok(true);
   });
-  ipcMain.handle('kits:list',(_,categoryId=null)=>{let sql=`SELECT k.*,wp.name weight_product_name,mc.name mix_category_name,GROUP_CONCAT(ki.product_id||':'||ki.quantity) items FROM kits k LEFT JOIN kit_items ki ON ki.kit_id=k.id LEFT JOIN products wp ON wp.id=k.weight_product_id LEFT JOIN categories mc ON mc.id=k.mix_category_id WHERE k.active=1`;const args=[];if(categoryId){sql+=' AND k.category_id=?';args.push(categoryId)}return ok(db.prepare(sql+' GROUP BY k.id ORDER BY k.name').all(...args))});
-  ipcMain.handle('kits:save',(_,k)=>{let id=k.id;return ok(db.transaction(()=>{const type=String(k.kit_type||'STANDARD')==='MIX_WEIGHT'?'MIX_WEIGHT':'STANDARD';const price=Math.max(0,Math.round(Number(k.price_cents||0)));if(!String(k.name||'').trim())fail('Informe o nome do combo.','VALIDATION');let weightProductId=null,mixCategoryId=null;if(type==='MIX_WEIGHT'){if(price<=0)fail('Informe o preço por kg do Mix por Peso.','VALIDATION');weightProductId=k.weight_product_id?Number(k.weight_product_id):null;mixCategoryId=k.mix_category_id?Number(k.mix_category_id):null;if(weightProductId){const wp=db.prepare("SELECT id,name,active,COALESCE(sale_mode,'UNIT') sale_mode FROM products WHERE id=?").get(weightProductId);if(!wp||!wp.active)fail('Produto-base de peso não encontrado.','NOT_FOUND');if(wp.sale_mode!=='WEIGHT')fail(`O produto-base "${wp.name}" precisa ser vendido por peso.`,'MIX_WEIGHT_BASE_MODE');}if(mixCategoryId){const mc=db.prepare('SELECT id,name,active FROM categories WHERE id=?').get(mixCategoryId);if(!mc||!mc.active)fail('Categoria de produtos do Mix não encontrada.','NOT_FOUND');}}else{for(const it of k.items||[]){const p=db.prepare("SELECT name,COALESCE(sale_mode,'UNIT') sale_mode FROM products WHERE id=? AND active=1").get(it.product_id);if(!p)fail('Produto de Kit/Combo não encontrado.','NOT_FOUND');if(p.sale_mode==='WEIGHT')fail(`O produto ${p.name} é vendido por peso e não pode ser usado em Kit/Combo normal.`, 'WEIGHT_IN_KIT');}}if(id)db.prepare('UPDATE kits SET name=?,sku=?,price_cents=?,category_id=?,kit_type=?,weight_product_id=?,mix_category_id=? WHERE id=?').run(k.name,k.sku||null,price,k.category_id||null,type,weightProductId,mixCategoryId,id);else id=db.prepare('INSERT INTO kits(name,sku,price_cents,category_id,kit_type,weight_product_id,mix_category_id,created_at) VALUES(?,?,?,?,?,?,?,?)').run(k.name,k.sku||null,price,k.category_id||null,type,weightProductId,mixCategoryId,now()).lastInsertRowid;db.prepare('DELETE FROM kit_items WHERE kit_id=?').run(id);if(type==='STANDARD')for(const it of k.items||[])db.prepare('INSERT INTO kit_items VALUES(?,?,?)').run(id,it.product_id,it.quantity);return Number(id);})())});
+  ipcMain.handle('kits:list',(_,categoryId=null)=>{let sql=`SELECT k.*,wp.name weight_product_name,vp.name volume_product_name,mc.name mix_category_name,GROUP_CONCAT(ki.product_id||':'||ki.quantity) items FROM kits k LEFT JOIN kit_items ki ON ki.kit_id=k.id LEFT JOIN products wp ON wp.id=k.weight_product_id LEFT JOIN products vp ON vp.id=k.volume_product_id LEFT JOIN categories mc ON mc.id=k.mix_category_id WHERE k.active=1`;const args=[];if(categoryId){sql+=' AND k.category_id=?';args.push(categoryId)}return ok(db.prepare(sql+' GROUP BY k.id ORDER BY k.name').all(...args))});
+  ipcMain.handle('kits:save',(_,k)=>{let id=k.id;return ok(db.transaction(()=>{const requested=String(k.kit_type||'STANDARD');const type=['MIX_WEIGHT','MIX_VOLUME_L','MIX_VOLUME_ML'].includes(requested)?requested:'STANDARD';const price=Math.max(0,Math.round(Number(k.price_cents||0)));if(!String(k.name||'').trim())fail('Informe o nome do combo.','VALIDATION');let weightProductId=null,volumeProductId=null,mixCategoryId=null;if(type!=='STANDARD'){if(price<=0)fail(type==='MIX_WEIGHT'?'Informe o preço por kg do Mix por Peso.':type==='MIX_VOLUME_L'?'Informe o preço por litro do Mix.':'Informe o preço por mililitro do Mix.','VALIDATION');weightProductId=type==='MIX_WEIGHT'&&k.weight_product_id?Number(k.weight_product_id):null;volumeProductId=type!=='MIX_WEIGHT'&&k.volume_product_id?Number(k.volume_product_id):null;mixCategoryId=k.mix_category_id?Number(k.mix_category_id):null;if(weightProductId){const wp=db.prepare("SELECT id,name,active,COALESCE(sale_mode,'UNIT') sale_mode FROM products WHERE id=?").get(weightProductId);if(!wp||!wp.active)fail('Produto-base de peso não encontrado.','NOT_FOUND');if(wp.sale_mode!=='WEIGHT')fail(`O produto-base "${wp.name}" precisa ser vendido por peso.`,'MIX_WEIGHT_BASE_MODE');}if(volumeProductId){const vp=db.prepare("SELECT id,name,active,COALESCE(sale_mode,'UNIT') sale_mode FROM products WHERE id=?").get(volumeProductId);if(!vp||!vp.active)fail('Produto-base de volume não encontrado.','NOT_FOUND');if(!['VOLUME_L','VOLUME_ML'].includes(vp.sale_mode))fail(`O produto-base "${vp.name}" precisa ter controle de volume.`,'MIX_VOLUME_BASE_MODE');}if(mixCategoryId){const mc=db.prepare('SELECT id,name,active FROM categories WHERE id=?').get(mixCategoryId);if(!mc||!mc.active)fail('Categoria de produtos do Mix não encontrada.','NOT_FOUND');}}else{for(const it of k.items||[]){const p=db.prepare("SELECT name,COALESCE(sale_mode,'UNIT') sale_mode FROM products WHERE id=? AND active=1").get(it.product_id);if(!p)fail('Produto de Kit/Combo não encontrado.','NOT_FOUND');if(p.sale_mode!=='UNIT')fail(`O produto ${p.name} não é vendido por unidade e não pode ser usado em Kit/Combo normal.`,'ITEM_MODE_IN_KIT');}}if(id)db.prepare('UPDATE kits SET name=?,sku=?,price_cents=?,category_id=?,kit_type=?,weight_product_id=?,volume_product_id=?,mix_category_id=? WHERE id=?').run(k.name,k.sku||null,price,k.category_id||null,type,weightProductId,volumeProductId,mixCategoryId,id);else id=db.prepare('INSERT INTO kits(name,sku,price_cents,category_id,kit_type,weight_product_id,volume_product_id,mix_category_id,created_at) VALUES(?,?,?,?,?,?,?,?,?)').run(k.name,k.sku||null,price,k.category_id||null,type,weightProductId,volumeProductId,mixCategoryId,now()).lastInsertRowid;db.prepare('DELETE FROM kit_items WHERE kit_id=?').run(id);if(type==='STANDARD')for(const it of k.items||[])db.prepare('INSERT INTO kit_items VALUES(?,?,?)').run(id,it.product_id,it.quantity);return Number(id);})())});
   ipcMain.handle('kits:delete',(_,id)=>ok(db.transaction(()=>{const kitId=Number(id);if(!kitId)fail('Kit / Combo inválido.','VALIDATION');const kit=db.prepare('SELECT * FROM kits WHERE id=? AND active=1').get(kitId);if(!kit)fail('Kit / Combo não encontrado.','NOT_FOUND');const openQuote=db.prepare("SELECT q.number FROM quote_items qi JOIN quotes q ON q.id=qi.quote_id WHERE qi.kit_id=? AND q.status='ABERTO' LIMIT 1").get(kitId);if(openQuote)fail(`Este Kit / Combo está no orçamento #${openQuote.number}, que ainda está em aberto. Remova-o do orçamento antes de excluir.`, 'KIT_IN_OPEN_QUOTE');db.prepare('UPDATE kits SET active=0 WHERE id=?').run(kitId);activity('',String(kit.kit_type||'STANDARD')==='MIX_WEIGHT'?'Excluiu Mix por Peso':'Excluiu Kit / Combo','kit',kitId,kit.name||'');return true})()));
   ipcMain.handle('customers:list',()=>ok(db.prepare('SELECT c.*,COALESCE(SUM(cp.amount_cents),0) paid_cents FROM customers c LEFT JOIN customer_payments cp ON cp.customer_id=c.id GROUP BY c.id ORDER BY c.name').all()));
   ipcMain.handle('customers:save',(_,c)=>{
@@ -1149,7 +1149,7 @@ if(sale.quote_id){
         const kit=db.prepare('SELECT * FROM kits WHERE id=? AND active=1').get(i.kit_id);
         if(!kit)fail('Combo não encontrado','NOT_FOUND');
         if(String(kit.kit_type||'STANDARD')==='MIX_WEIGHT'){
-          const mixItems=(Array.isArray(i.mix_items)?i.mix_items:[]).map(x=>({product_id:Number(x.product_id),quantity:Math.max(0,Math.round(Number(x.quantity||0))),weight_grams:Math.max(0,Math.round(Number(x.weight_grams||0)))})).filter(x=>x.product_id&&x.quantity>0);
+          const mixMode=String(kit.kit_type),volumeMix=mixMode!=='MIX_WEIGHT';const mixItems=(Array.isArray(i.mix_items)?i.mix_items:[]).map(x=>({product_id:Number(x.product_id),quantity:Math.max(0,Math.round(Number(x.quantity||1))),weight_grams:Math.max(0,Math.round(Number(x.weight_grams||0))),volume_ml:Math.max(0,Math.round(Number(x.volume_ml||0)))})).filter(x=>x.product_id&&(volumeMix?x.volume_ml>0:x.quantity>0));
           if(!mixItems.length)fail(`Selecione pelo menos uma cor/produto para ${kit.name}.`,'MIX_EMPTY');
           const seen=new Set();
           for(const x of mixItems){
@@ -1159,18 +1159,18 @@ if(sale.quote_id){
             if(!p||!p.active)fail('Um produto do Mix não está disponível.','MIX_PRODUCT_NOT_FOUND');
             if(p.sale_mode!=='UNIT'||p.item_type==='SERVICE')fail(`O produto "${p.name}" precisa ser vendido por unidade para participar do Mix.`,'MIX_PRODUCT_MODE');
             if(kit.mix_category_id&&Number(p.category_id)!==Number(kit.mix_category_id)&&Number(p.parent_id)!==Number(kit.mix_category_id))fail(`O produto "${p.name}" não pertence à categoria configurada para este Mix.`,'MIX_CATEGORY');
-            if(x.weight_grams<=0)fail(`Informe o peso de ${p.name} dentro do Mix ${kit.name}.`,'MIX_WEIGHT_REQUIRED');
-            addRequirement(x.product_id,x.quantity);
+            if(volumeMix){if(x.volume_ml<=0)fail(`Informe o volume de ${p.name} dentro do Mix ${kit.name}.`,'MIX_VOLUME_REQUIRED');addRequirement(x.product_id,x.volume_ml)}else{if(x.weight_grams<=0)fail(`Informe o peso de ${p.name} dentro do Mix ${kit.name}.`,'MIX_WEIGHT_REQUIRED');addRequirement(x.product_id,x.quantity)}
           }
-          const grams=mixItems.reduce((sum,x)=>sum+x.weight_grams,0);
-          if(grams<=0)fail(`Informe os pesos das cores/produtos de ${kit.name}.`,'WEIGHT_REQUIRED');
-          if(kit.weight_product_id){
+          const grams=mixItems.reduce((sum,x)=>sum+x.weight_grams,0),volumeMl=mixItems.reduce((sum,x)=>sum+x.volume_ml,0);
+          if(volumeMix?volumeMl<=0:grams<=0)fail(volumeMix?`Informe os volumes dos produtos de ${kit.name}.`:`Informe os pesos das cores/produtos de ${kit.name}.`,volumeMix?'VOLUME_REQUIRED':'WEIGHT_REQUIRED');
+          if(!volumeMix&&kit.weight_product_id){
             const wp=db.prepare("SELECT id,name,active,COALESCE(sale_mode,'UNIT') sale_mode FROM products WHERE id=?").get(Number(kit.weight_product_id));
             if(!wp||!wp.active)fail(`O estoque-base de peso do Mix ${kit.name} não está disponível.`,'MIX_WEIGHT_BASE_NOT_FOUND');
             if(wp.sale_mode!=='WEIGHT')fail(`O estoque-base de peso do Mix ${kit.name} não está configurado como produto por kg.`,'MIX_WEIGHT_BASE_MODE');
             addRequirement(wp.id,grams);
           }
-          subtotal+=Math.round(Number(kit.price_cents||0)*grams/1000);
+          if(volumeMix&&kit.volume_product_id){const vp=db.prepare("SELECT id,name,active,COALESCE(sale_mode,'UNIT') sale_mode FROM products WHERE id=?").get(Number(kit.volume_product_id));if(!vp||!vp.active||!['VOLUME_L','VOLUME_ML'].includes(vp.sale_mode))fail('O estoque-base de volume deste Mix não está disponível.','MIX_VOLUME_BASE_MODE');addRequirement(vp.id,volumeMl)}
+          subtotal+=volumeMix?(mixMode==='MIX_VOLUME_L'?Math.round(Number(kit.price_cents||0)*volumeMl/1000):Math.round(Number(kit.price_cents||0)*volumeMl)):Math.round(Number(kit.price_cents||0)*grams/1000);
         }else{
           const parts=db.prepare("SELECT ki.*,COALESCE(p.sale_mode,'UNIT') sale_mode,p.name product_name FROM kit_items ki JOIN products p ON p.id=ki.product_id WHERE ki.kit_id=?").all(i.kit_id);
           if(!parts.length)fail(`O combo ${kit.name} não possui composição`,'KIT_EMPTY');
@@ -1257,15 +1257,13 @@ if(sale.quote_id){
       let mode='UNIT',qty=Math.max(1,Math.round(Number(i.quantity||1))),grams=0,volumeMl=0,unitCount=0,linkedUnitProductId=null,unitPrice=Number(i.unit_price_cents||0),itemTotal=unitPrice*qty,mixItems=[];
       if(i.kit_id){
         const kit=db.prepare('SELECT * FROM kits WHERE id=?').get(Number(i.kit_id));
-        if(String(kit?.kit_type||'STANDARD')==='MIX_WEIGHT'){
-          mode='MIX_WEIGHT';
+        if(['MIX_WEIGHT','MIX_VOLUME_L','MIX_VOLUME_ML'].includes(String(kit?.kit_type||'STANDARD'))){
+          mode=String(kit.kit_type);
           grams=Math.round(Number(i.weight_grams||0));
-          mixItems=(Array.isArray(i.mix_items)?i.mix_items:[]).map(x=>({product_id:Number(x.product_id),quantity:Math.max(0,Math.round(Number(x.quantity||0))),weight_grams:Math.max(0,Math.round(Number(x.weight_grams||0)))})).filter(x=>x.product_id&&x.quantity>0);
-          grams=mixItems.reduce((sum,x)=>sum+x.weight_grams,0);
-          unitCount=mixItems.reduce((sum,x)=>sum+x.quantity,0);
-          qty=1;
-          unitPrice=Number(kit?.price_cents||unitPrice);
-          itemTotal=Math.round(unitPrice*grams/1000);
+          mixItems=(Array.isArray(i.mix_items)?i.mix_items:[]).map(x=>({product_id:Number(x.product_id),quantity:Math.max(0,Math.round(Number(x.quantity||1))),weight_grams:Math.max(0,Math.round(Number(x.weight_grams||0))),volume_ml:Math.max(0,Math.round(Number(x.volume_ml||0)))})).filter(x=>x.product_id&&(mode==='MIX_WEIGHT'?x.quantity>0:x.volume_ml>0));
+          grams=mixItems.reduce((sum,x)=>sum+x.weight_grams,0);volumeMl=mixItems.reduce((sum,x)=>sum+x.volume_ml,0);
+          unitCount=mixItems.reduce((sum,x)=>sum+x.quantity,0);qty=1;unitPrice=Number(kit?.price_cents||unitPrice);
+          itemTotal=mode==='MIX_VOLUME_L'?Math.round(unitPrice*volumeMl/1000):mode==='MIX_VOLUME_ML'?Math.round(unitPrice*volumeMl):Math.round(unitPrice*grams/1000);
         }
       }else if(i.product_id){
         const pp=db.prepare("SELECT COALESCE(sale_mode,'UNIT') sale_mode,price_cents,linked_unit_product_id FROM products WHERE id=?").get(i.product_id);
@@ -1283,7 +1281,7 @@ if(sale.quote_id){
       }
       const si=db.prepare('INSERT INTO sale_items(sale_id,product_id,kit_id,name,quantity,unit_price_cents,total_cents,sale_mode,weight_grams,unit_count,linked_unit_product_id,volume_ml) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
         .run(saleId,i.kit_id?null:i.product_id,i.kit_id||null,i.name,qty,unitPrice,itemTotal,mode,grams,unitCount,linkedUnitProductId,volumeMl);
-      if(mode==='MIX_WEIGHT')for(const x of mixItems){const p=db.prepare('SELECT name FROM products WHERE id=?').get(x.product_id);mixSaleIns.run(si.lastInsertRowid,x.product_id,p?.name||'',x.quantity,x.weight_grams||0);}
+      if(['MIX_WEIGHT','MIX_VOLUME_L','MIX_VOLUME_ML'].includes(mode))for(const x of mixItems){const p=db.prepare('SELECT name FROM products WHERE id=?').get(x.product_id);db.prepare('INSERT INTO sale_mix_items(sale_item_id,product_id,product_name,quantity,weight_grams,volume_ml) VALUES(?,?,?,?,?,?)').run(si.lastInsertRowid,x.product_id,p?.name||'',x.quantity||1,x.weight_grams||0,x.volume_ml||0);}
     }
     for(const p of payments){if(!p.original_cents)continue;const fee=Math.round(p.original_cents*Number(p.fee_percent||0)/100);const final=p.final_cents!=null?Number(p.final_cents):p.original_cents+fee;const condition=p.method==='Cartão de crédito'?`Crédito ${p.installments||1}x · taxa ${Number(p.fee_percent||0).toFixed(2)}%`:p.method;db.prepare('INSERT INTO sale_payments(sale_id,customer_id,method,original_cents,fee_percent,fee_cents,final_cents,installments,condition_text,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(saleId,sale.customer_id||null,p.method,p.original_cents,p.fee_percent||0,fee,final,p.installments||1,condition,now())}
     for(const [pid,qty] of requirements){
